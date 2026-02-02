@@ -1,0 +1,108 @@
+-- holdortoggle/features/qaw.script
+-- Quick Action Wheel integration - allows bypassing modifier keys on hold
+
+local utils = holdortoggle_utils
+
+-- State
+local qaw_ignore_modifiers = false
+local qaw_close_with_reload = false
+local qaw_installed = false
+local qaw_keybind = nil
+
+-- Module interface
+function initialize()
+    utils.debug_log("[QAW] Initializing QAW integration module")
+
+    -- Check if Quick Action Wheel is installed
+    if _G.haru_quick_action_wheel_mcm then
+        qaw_installed = true
+        utils.debug_log("[QAW] Quick Action Wheel detected")
+    else
+        qaw_installed = false
+        utils.debug_log("[QAW] Quick Action Wheel not detected - integration disabled")
+    end
+end
+
+function update_options()
+    if not ui_mcm then return end
+
+    qaw_ignore_modifiers = ui_mcm.get("mcm/holdortoggle/qol/qaw_ignore_modifiers")
+    qaw_close_with_reload = ui_mcm.get("mcm/holdortoggle/qol/qaw_close_with_reload")
+
+    utils.debug_log("[QAW] update_options called - ignore_modifiers: " .. tostring(qaw_ignore_modifiers) .. ", close_with_reload: " .. tostring(qaw_close_with_reload))
+
+    -- Update keybind from QAW settings
+    if qaw_installed and _G.haru_quick_action_wheel_mcm then
+        local qaw = _G.haru_quick_action_wheel_mcm
+        if qaw.MCM_SETTINGS and qaw.MCM_SETTINGS.keybind then
+            qaw_keybind = qaw.MCM_SETTINGS.keybind
+            utils.debug_log("[QAW] Updated keybind to: " .. tostring(qaw_keybind))
+        end
+    end
+end
+
+-- Key press handler - called by core
+function on_key_press(key)
+    -- Check if feature is enabled
+    if not qaw_close_with_reload then
+        utils.debug_log("[QAW] Feature disabled")
+        return false
+    end
+
+    if not qaw_installed then
+        utils.debug_log("[QAW] QAW not installed")
+        return false
+    end
+
+    local qaw = _G.haru_quick_action_wheel_mcm
+    if not qaw then
+        utils.debug_log("[QAW] QAW global not found")
+        return false
+    end
+
+    if not qaw.GUI then
+        utils.debug_log("[QAW] QAW.GUI not found")
+        return false
+    end
+
+    if not qaw.GUI:IsShown() then
+        return false  -- Don't log this one, it happens all the time
+    end
+
+    utils.debug_log("[QAW] QAW is shown, checking key: " .. tostring(key))
+
+    -- Check if reload key was pressed
+    local reload_key = bind_to_dik(key_bindings.kWPN_RELOAD)
+    utils.debug_log("[QAW] Reload key binding: " .. tostring(reload_key))
+    if key == reload_key then
+        utils.debug_log("[QAW] Reload key pressed, closing QAW")
+        qaw.GUI:Close()
+        return true
+    end
+
+    return false
+end
+
+-- Key hold handler - called by core
+function on_key_hold(key)
+    if not qaw_ignore_modifiers then return false end
+    if not qaw_installed then return false end
+    if not qaw_keybind then return false end
+    if key ~= qaw_keybind then return false end
+
+    -- Check if held long enough
+    if not ui_mcm.key_hold("holdortoggle_qaw", key) then
+        return false
+    end
+
+    utils.debug_log("[QAW] Hold detected on QAW key, opening menu (ignoring modifiers)")
+
+    -- Open QAW menu directly, bypassing modifier checks
+    local qaw = _G.haru_quick_action_wheel_mcm
+    if qaw and qaw.open_radial_menu then
+        qaw.open_radial_menu()
+        return true
+    end
+
+    return false
+end

@@ -1,0 +1,163 @@
+-- holdortoggle/core.script
+-- Main coordinator - loads all modules and dispatches events
+
+-- Load all modules
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+local config = holdortoggle_config
+local movement_base = holdortoggle_movement_base
+local lean = holdortoggle_features_lean
+local inventory = holdortoggle_features_inventory
+local autowalk = holdortoggle_features_autowalk
+local qaw = holdortoggle_features_qaw
+local vanilla_prone = holdortoggle_stance_systems_vanilla_prone
+local fluid_stance = holdortoggle_stance_systems_fluid_stance
+local progressive_stance = holdortoggle_stance_systems_progressive_stance
+
+-- Initialize module cross-references
+function initialize()
+    -- Give config access to all modules
+    config.set_modules({
+        movement_base = movement_base,
+        lean = lean,
+        inventory = inventory,
+        autowalk = autowalk,
+        qaw = qaw,
+        vanilla_prone = vanilla_prone,
+        fluid_stance = fluid_stance,
+        progressive_stance = progressive_stance
+    })
+
+    -- Give movement_base access to config
+    movement_base.set_config_module(config)
+
+    -- Initialize QAW integration
+    qaw.initialize()
+end
+
+-- MCM load handler
+function on_mcm_load()
+    return config.on_mcm_load()
+end
+
+-- Option change handler
+function on_option_change()
+    config.on_option_change()
+end
+
+-- First update handler
+function actor_on_first_update()
+    utils.debug_log("[CORE] actor_on_first_update called")
+    -- Sync MCM values from game settings first
+    utils.debug_log("[CORE] Calling sync_from_game_settings")
+    config.sync_from_game_settings()
+    -- Then apply MCM settings
+    utils.debug_log("[CORE] Calling on_option_change")
+    on_option_change()
+    utils.debug_log("[CORE] actor_on_first_update completed")
+end
+
+-- Update handler
+function actor_on_update()
+    movement_base.actor_on_update()
+    lean.actor_on_update()
+    autowalk.actor_on_update()
+end
+
+-- Before key press handler
+function on_before_key_press(dik, bind, dis, flags)
+    -- Inventory needs to block first
+    if inventory.on_before_key_press(dik, bind, dis, flags) then
+        return true
+    end
+
+    -- Lean (for opposite lean canceling)
+    if lean.on_before_key_press(dik, bind, dis, flags) then
+        return true
+    end
+
+    -- Stance system (if it has on_before_key_press)
+    if state.active_stance_system and state.active_stance_system.on_before_key_press then
+        if state.active_stance_system.on_before_key_press(dik, bind, dis, flags) then
+            return true
+        end
+    end
+
+    -- Movement base
+    if movement_base.on_before_key_press(dik, bind, dis, flags) then
+        return true
+    end
+
+    return false
+end
+
+-- Key press handler
+function on_key_press(key)
+    -- Check QAW integration first (for closing with reload/ammo keys)
+    if qaw.on_key_press(key) then
+        return  -- QAW handled it
+    end
+
+    -- Try stance system first (if active)
+    if state.active_stance_system then
+        if state.active_stance_system.on_key_press(key) then
+            return  -- Stance system handled it
+        end
+    end
+
+    -- Fall back to other systems
+    movement_base.on_key_press(key)
+    lean.on_key_press(key)
+    inventory.on_key_press(key)
+    autowalk.on_key_press(key)
+end
+
+-- Key hold handler
+function on_key_hold(key)
+    -- Check QAW integration first (for modifier bypass on hold)
+    if qaw.on_key_hold(key) then
+        return  -- QAW handled it
+    end
+
+    -- Try stance system first (if active)
+    if state.active_stance_system then
+        if state.active_stance_system.on_key_hold(key) then
+            return  -- Stance system handled it
+        end
+    end
+
+    -- Fall back to other systems
+    movement_base.on_key_hold(key)
+    lean.on_key_hold(key)
+    inventory.on_key_hold(key)
+    autowalk.on_key_hold(key)
+end
+
+-- Key release handler
+function on_key_release(key)
+    -- Try stance system first (if active)
+    if state.active_stance_system then
+        if state.active_stance_system.on_key_release(key) then
+            return  -- Stance system handled it
+        end
+    end
+
+    -- Fall back to other systems
+    movement_base.on_key_release(key)
+    lean.on_key_release(key)
+    inventory.on_key_release(key)
+    autowalk.on_key_release(key)
+end
+
+-- Game start handler
+function on_game_start()
+    initialize()
+
+    RegisterScriptCallback("on_option_change", on_option_change)
+    RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+    RegisterScriptCallback("actor_on_update", actor_on_update)
+    RegisterScriptCallback("on_key_press", on_key_press)
+    RegisterScriptCallback("on_key_hold", on_key_hold)
+    RegisterScriptCallback("on_key_release", on_key_release)
+    RegisterScriptCallback("on_before_key_press", on_before_key_press)
+end

@@ -1,0 +1,15 @@
+-- holdortoggle_mcm.script
+-- Main entry point - delegates to modular architecture
+-- Original file backed up as holdortoggle_mcm.script.backup
+
+local core = holdortoggle_core
+
+-- MCM load
+function on_mcm_load()
+    return core.on_mcm_load()
+end
+
+-- Game start
+function on_game_start()
+    core.on_game_start()
+end

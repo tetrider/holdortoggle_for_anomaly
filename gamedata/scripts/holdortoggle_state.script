@@ -1,0 +1,42 @@
+-- holdortoggle/state.script
+-- Shared state variables for all modules
+
+-- Game toggle settings (from ui_options)
+is_crouch_toggled = ui_options.get("control/general/crouch_toggle")
+is_walk_toggled = ui_options.get("control/general/walk_toggle")
+is_sprint_toggled = ui_options.get("control/general/sprint_toggle")
+is_leaning_toggled = ui_options.get("control/general/lookout_toggle")
+is_aiming_toggled = ui_options.get("control/general/aim_toggle")
+
+-- Key holding states
+holding_crouch = false
+holding_walk = false
+holding_sprint = false
+sprint_key_down = false  -- Tracks if sprint key is currently pressed (for Hold+Toggle tap vs hold)
+holding_lean_left = false
+holding_lean_right = false
+holding_inventory = false
+holding_pda = false
+
+-- Movement states
+moving = false
+autowalking = false
+
+-- Sprint blocking state (prevents progressive stance from triggering prone when restoring crouch)
+restoring_crouch_from_sprint_block = false
+
+-- Inventory/PDA state
+inventoring = false
+pdaing = false
+
+-- Active stance system reference
+active_stance_system = nil
+
+-- Refresh toggle settings from game options
+function refresh_toggle_settings()
+    is_crouch_toggled = ui_options.get("control/general/crouch_toggle")
+    is_walk_toggled = ui_options.get("control/general/walk_toggle")
+    is_sprint_toggled = ui_options.get("control/general/sprint_toggle")
+    is_leaning_toggled = ui_options.get("control/general/lookout_toggle")
+    is_aiming_toggled = ui_options.get("control/general/aim_toggle")
+end

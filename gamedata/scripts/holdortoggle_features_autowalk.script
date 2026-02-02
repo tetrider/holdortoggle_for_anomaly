@@ -1,0 +1,58 @@
+-- holdortoggle/features/autowalk.script
+-- Auto-walk feature
+
+local state = holdortoggle_state
+
+-- MCM options
+local autowalkey = DIK_keys.DIK_W
+local modifier = 3  -- Default to Alt
+local mode = 2      -- Default to hold
+
+function update_options()
+    if ui_mcm then
+        autowalkey = ui_mcm.get("mcm/holdortoggle/main/autowalkey")
+        modifier = ui_mcm.get("mcm/holdortoggle/main/modifier")
+        mode = ui_mcm.get("mcm/holdortoggle/main/mode")
+    end
+end
+
+function actor_on_update()
+    if state.autowalking then
+        level.hold_action(bind_to_dik(key_bindings.kFWD))
+    end
+end
+
+function on_key_press(key)
+    -- Cancel autowalk if moving forward/backward
+    if (key == bind_to_dik(key_bindings.kFWD)) or (key == bind_to_dik(key_bindings.kBACK)) then
+        if state.autowalking then
+            toggle_autowalk()
+        end
+    end
+
+    -- Autowalk key press
+    if (key == autowalkey) then
+        if (mode == 0) and ui_mcm.get_mod_key(modifier) then
+            toggle_autowalk()
+        end
+
+        if (mode == 1) and ui_mcm.get_mod_key(modifier) and ui_mcm.double_tap("holdortoggle", key) then
+            toggle_autowalk()
+        end
+    end
+end
+
+function on_key_hold(key)
+    -- Autowalk key hold
+    if (key == autowalkey) and ui_mcm.get_mod_key(modifier) and (mode == 2) and ui_mcm.key_hold("holdortoggle", key) then
+        toggle_autowalk()
+    end
+end
+
+function on_key_release(key)
+    -- No action needed for autowalk on key release
+end
+
+function toggle_autowalk()
+    state.autowalking = not state.autowalking
+end

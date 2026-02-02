@@ -1,0 +1,288 @@
+-- holdortoggle/movement_base.script
+-- Basic movement (crouch, walk, sprint) when no stance system is active
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+local stance_utils = holdortoggle_stance_utils
+local config = nil  -- Will be set by core
+
+-- MCM options
+local hot_crouch = 0 -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+local hot_walk = 0 -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+local hot_sprint = 0 -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+local hot_sprint_cancel = false
+
+-- Track when we need to restore states after blocking sprint
+local restore_states_after_sprint_block = false
+local pre_sprint_crouch = false
+local pre_sprint_walk = false
+local sprint_key_was_blocked = false  -- Track if last sprint press was blocked
+local sprint_block_time = 0  -- Track timing for debug logging
+
+function set_config_module(cfg)
+    config = cfg
+end
+
+function update_options()
+    if ui_mcm then
+        hot_crouch = ui_mcm.get("mcm/holdortoggle/main/hot_crouch")
+        hot_walk = ui_mcm.get("mcm/holdortoggle/main/hot_walk")
+        hot_sprint = ui_mcm.get("mcm/holdortoggle/main/hot_sprint")
+        hot_sprint_cancel = ui_mcm.get("mcm/holdortoggle/qol/hot_sprint_cancel")
+    end
+end
+
+function actor_on_update()
+    -- Check if we need to restore states after blocking sprint
+    if restore_states_after_sprint_block then
+        restore_states_after_sprint_block = false
+
+        -- DEBUG: Log timing and current states
+        if sprint_block_time > 0 then
+            utils.debug_log("[SPRINT DEBUG] RESTORE called " .. (time_global() - sprint_block_time) .. "ms after block")
+            sprint_block_time = 0  -- Reset for next time
+        end
+        utils.debug_log("[SPRINT DEBUG] IN actor_on_update - Crouch: " .. tostring(IsMoveState("mcCrouch")) .. ", Walk: " .. tostring(IsMoveState("mcAccel")))
+        utils.debug_log("[SPRINT DEBUG] Need to restore - Crouch: " .. tostring(pre_sprint_crouch) .. ", Walk: " .. tostring(pre_sprint_walk))
+
+        -- Restore crouch
+        if pre_sprint_crouch and not IsMoveState("mcCrouch") then
+            utils.debug_log("[SPRINT DEBUG] RESTORING CROUCH in actor_on_update")
+            utils.debug_log("[MOVEMENT_BASE] actor_on_update: re-activating crouch")
+            state.restoring_crouch_from_sprint_block = true
+            level.press_action(bind_to_dik(key_bindings.kCROUCH))
+            state.restoring_crouch_from_sprint_block = false
+        else
+            utils.debug_log("[SPRINT DEBUG] NOT restoring crouch - already crouching or wasn't crouched")
+        end
+
+        -- Restore walk
+        if pre_sprint_walk and not IsMoveState("mcAccel") then
+            utils.debug_log("[SPRINT DEBUG] RESTORING WALK in actor_on_update")
+            utils.debug_log("[MOVEMENT_BASE] actor_on_update: re-activating walk")
+            level.press_action(bind_to_dik(key_bindings.kACCEL))
+        else
+            utils.debug_log("[SPRINT DEBUG] NOT restoring walk - already walking or wasn't walking")
+        end
+
+        -- Clear state flags
+        pre_sprint_crouch = false
+        pre_sprint_walk = false
+    end
+
+    -- For Hold mode (0) and Hold+Toggle mode (2): activate sprint when moving and holding sprint key
+    if (hot_sprint == 0 or hot_sprint == 2) and (state.holding_sprint or state.sprint_key_down) and (state.moving or state.autowalking) and not IsMoveState("mcSprint") then
+        -- For Hold mode (0): always manually activate (we control sprint entirely)
+        if hot_sprint == 0 then
+            level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+            utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold mode)")
+        -- For Hold+Toggle mode (2): only activate if key was blocked, otherwise game's toggle handles it
+        elseif sprint_key_was_blocked or (hot_sprint_cancel and not IsMoveState("mcFwd")) then
+            level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+            utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold+Toggle, key was/is blocked)")
+        end
+    end
+end
+
+function on_before_key_press(dik, bind, dis, flags)
+    if bind == stance_utils.get_sprint_key() then
+        -- For Hold mode (0): Set holding state immediately (actor_on_update controls activation)
+        -- For Hold+Toggle mode (2): Set sprint_key_down to track press (holding_sprint set later in on_key_hold)
+        if hot_sprint == 0 then
+            state.holding_sprint = true
+            utils.debug_log("[MOVEMENT_BASE] on_before_key_press: tracking sprint hold (Hold mode)")
+        elseif hot_sprint == 2 then
+            state.sprint_key_down = true
+            utils.debug_log("[MOVEMENT_BASE] on_before_key_press: tracking sprint press (Hold+Toggle mode)")
+        end
+
+        -- Block sprint if hot_sprint_cancel is enabled AND not moving forward
+        -- This prevents the game from entering sprint mode (which auto-cancels actions)
+        if hot_sprint_cancel and not IsMoveState("mcFwd") then
+            utils.debug_log("[MOVEMENT_BASE] on_before_key_press: blocking sprint (hot_sprint_cancel enabled, not moving forward)")
+
+            -- DEBUG: Check states BEFORE blocking
+            utils.debug_log("[SPRINT DEBUG] BEFORE BLOCK - Crouch: " .. tostring(IsMoveState("mcCrouch")) .. ", Walk: " .. tostring(IsMoveState("mcAccel")))
+
+            sprint_block_time = time_global()
+            utils.debug_log("[SPRINT DEBUG] BLOCKING at time: " .. sprint_block_time)
+
+            -- CRITICAL FIX: The game engine auto-cancels crouch and walk when sprint is pressed,
+            -- even AFTER our blocking code runs. Capture current states and restore them on next frame.
+            pre_sprint_crouch = IsMoveState("mcCrouch")
+            pre_sprint_walk = IsMoveState("mcAccel")
+            restore_states_after_sprint_block = true
+            sprint_key_was_blocked = true
+
+            utils.debug_log("[MOVEMENT_BASE] on_before_key_press: captured states - crouch=" .. tostring(pre_sprint_crouch) .. ", walk=" .. tostring(pre_sprint_walk))
+
+            -- DEBUG: Check states AFTER blocking (but before return)
+            utils.debug_log("[SPRINT DEBUG] AFTER BLOCK (before return) - Crouch: " .. tostring(IsMoveState("mcCrouch")) .. ", Walk: " .. tostring(IsMoveState("mcAccel")))
+
+            return true  -- Block the key
+        else
+            sprint_key_was_blocked = false
+        end
+
+        -- For Toggle and Hold+Toggle modes, let the key through normally
+        -- Action canceling is handled in on_key_press based on hot_sprint_cancel
+    end
+end
+
+function on_key_press(key)
+    -- Sprint cancels lean, aim, and prone toggles
+    if (key == bind_to_dik(stance_utils.get_sprint_key())) then
+        -- Only cancel actions if hot_sprint_cancel is disabled OR player is moving forward
+        if not hot_sprint_cancel or IsMoveState("mcFwd") then
+            if not (state.holding_lean_left or state.holding_lean_right) then
+                if IsMoveState("mcLLookout") then level.press_action(bind_to_dik(key_bindings.kL_LOOKOUT)) end
+                if IsMoveState("mcRLookout") then level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT)) end
+            end
+
+            -- Cancel aim/zoom only if aim toggle is ON (in hold mode, releasing aim cancels it anyway)
+            if axr_main.weapon_is_zoomed then
+                utils.debug_log("[MOVEMENT_BASE] on_key_press: weapon_is_zoomed=true, is_aiming_toggled=" .. tostring(state.is_aiming_toggled))
+                if state.is_aiming_toggled then
+                    level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+                    utils.debug_log("[MOVEMENT_BASE] on_key_press: canceling aim (toggle mode)")
+                else
+                    utils.debug_log("[MOVEMENT_BASE] on_key_press: NOT canceling aim (hold mode)")
+                end
+            end
+        end
+    end
+
+    -- Track crouch press for Hold mode (only if no stance system is handling it)
+    if (key == bind_to_dik(key_bindings.kCROUCH)) then
+        if not state.active_stance_system or not state.active_stance_system.is_handling_crouch() then
+            -- For Hold mode (0), immediately mark as holding to mimic hold behavior
+            if hot_crouch == 0 then
+                state.holding_crouch = true
+            end
+        end
+    end
+
+    -- Track walk press for Hold mode (only if no stance system is handling it)
+    if (key == bind_to_dik(key_bindings.kACCEL)) then
+        if not state.active_stance_system or not state.active_stance_system.is_handling_walk() then
+            -- For Hold mode (0), immediately mark as holding to mimic hold behavior
+            if hot_walk == 0 then
+                state.holding_walk = true
+            end
+        end
+    end
+
+    -- Sprint Hold mode (0) tracking is handled in on_before_key_press
+    -- This allows tracking even when sprint is blocked by hot_sprint_cancel
+
+    -- Dirty move check
+    if (key == bind_to_dik(key_bindings.kFWD)) or (key == bind_to_dik(key_bindings.kBACK)) then
+        state.moving = true
+    end
+end
+
+function on_key_hold(key)
+    local is_modifier = utils.is_modifier_key(key)
+
+    -- Crouch hold (only if no stance system is handling it)
+    -- For Hold+Toggle mode (2), track when key passes hold threshold
+    if (key == bind_to_dik(key_bindings.kCROUCH)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcCrouch") then
+        if not state.active_stance_system or not state.active_stance_system.is_handling_crouch() then
+            -- Only set holding for Hold+Toggle mode (2)
+            -- Hold mode (0) already set it in on_key_press
+            if hot_crouch == 2 then
+                state.holding_crouch = true
+            end
+            if is_modifier then return end
+        end
+    -- Walk hold (only if no stance system is handling it)
+    -- For Hold+Toggle mode (2), track when key passes hold threshold
+    elseif (key == bind_to_dik(key_bindings.kACCEL)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcAccel") then
+        if not state.active_stance_system or not state.active_stance_system.is_handling_walk() then
+            -- Only set holding for Hold+Toggle mode (2)
+            -- Hold mode (0) already set it in on_key_press
+            if hot_walk == 2 then
+                state.holding_walk = true
+            end
+            if is_modifier then return end
+        end
+    -- Sprint hold
+    -- For Hold+Toggle mode (2), track when key passes hold threshold
+    elseif (key == bind_to_dik(stance_utils.get_sprint_key())) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcSprint") then
+        -- For Hold+Toggle mode (2): Mark as holding after threshold (distinguishes hold from tap)
+        -- Hold mode (0) already set it in on_before_key_press
+        if hot_sprint == 2 then
+            state.holding_sprint = true
+            utils.debug_log("[MOVEMENT_BASE] on_key_hold: sprint held past threshold (Hold+Toggle mode)")
+        end
+        if is_modifier then return end
+    end
+end
+
+function on_key_release(key)
+    -- Crouch release (only if no stance system is handling it)
+    if (key == bind_to_dik(key_bindings.kCROUCH)) and state.holding_crouch then
+        if not state.active_stance_system or not state.active_stance_system.is_handling_crouch() then
+            if IsMoveState("mcCrouch") then
+                level.press_action(bind_to_dik(key_bindings.kCROUCH))
+            end
+            state.holding_crouch = false
+            utils.holdfix()
+        end
+    -- Walk release (only if no stance system is handling it)
+    elseif (key == bind_to_dik(key_bindings.kACCEL)) and state.holding_walk then
+        if not state.active_stance_system or not state.active_stance_system.is_handling_walk() then
+            if IsMoveState("mcAccel") then
+                level.press_action(bind_to_dik(key_bindings.kACCEL))
+            end
+            state.holding_walk = false
+            utils.holdfix()
+        end
+    -- Sprint release
+    elseif (key == bind_to_dik(stance_utils.get_sprint_key())) then
+        if hot_sprint == 0 then
+            -- Hold mode: always deactivate if sprinting
+            if state.holding_sprint and IsMoveState("mcSprint") then
+                level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                utils.debug_log("[MOVEMENT_BASE] on_key_release: deactivating sprint (Hold mode)")
+            end
+        elseif hot_sprint == 2 then
+            -- Hold+Toggle mode:
+            -- - If held (holding_sprint is true): always deactivate
+            -- - If tapped (holding_sprint is false) while sprinting AND key was blocked: toggle off
+            if state.holding_sprint then
+                -- Was held past threshold, deactivate
+                if IsMoveState("mcSprint") then
+                    level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                    utils.debug_log("[MOVEMENT_BASE] on_key_release: deactivating sprint (held)")
+                end
+            elseif state.sprint_key_down and sprint_key_was_blocked and IsMoveState("mcSprint") then
+                -- Was tapped while sprinting AND key was blocked (didn't reach game), manually toggle off
+                level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                utils.debug_log("[MOVEMENT_BASE] on_key_release: toggling sprint off (tapped, was blocked)")
+            end
+            -- else: tapped and key wasn't blocked, game already handled toggle
+        end
+        state.holding_sprint = false
+        state.sprint_key_down = false
+
+        -- DEBUG: Check states BEFORE holdfix()
+        utils.debug_log("[SPRINT DEBUG] BEFORE HOLDFIX - Crouch: " .. tostring(IsMoveState("mcCrouch")) .. ", Walk: " .. tostring(IsMoveState("mcAccel")))
+        if sprint_block_time > 0 then
+            utils.debug_log("[SPRINT DEBUG] HOLDFIX called " .. (time_global() - sprint_block_time) .. "ms after block")
+        end
+
+        -- Only call holdfix if sprint wasn't blocked (optional optimization)
+        if not sprint_key_was_blocked then
+            utils.holdfix()
+        end
+
+        sprint_key_was_blocked = false
+
+        -- DEBUG: Check states AFTER holdfix()
+        utils.debug_log("[SPRINT DEBUG] AFTER HOLDFIX - Crouch: " .. tostring(IsMoveState("mcCrouch")) .. ", Walk: " .. tostring(IsMoveState("mcAccel")))
+    -- Movement release
+    elseif (key == bind_to_dik(key_bindings.kFWD)) or (key == bind_to_dik(key_bindings.kBACK)) then
+        state.moving = false
+    end
+end

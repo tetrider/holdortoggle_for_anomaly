@@ -1,0 +1,530 @@
+-- holdortoggle/stance_systems/fluid_stance.script
+-- Fluid stance system (prone_keybind_only = true)
+-- Advanced system: crouch ↔ walk ↔ prone fluid transitions with time-based toggle prevention
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+local stance_utils = holdortoggle_stance_utils
+
+-- Stance system state
+local prone_active = false
+local holding_prone_key = false
+local manually_exited_prone = false
+local exiting_prone_via_crouch = false
+local exiting_prone_via_walk = false
+local prone_exit_time = 0
+local toggling_prone_programmatically = false
+local prone_activated_by_this_press = false  -- Track if prone was activated by current prone key press
+local walk_held_while_exiting = false  -- Track if walk key was held while exiting prone (for Hold+Toggle mode)
+local crouch_held_while_exiting = false  -- Track if crouch key was held while exiting prone (for Hold+Toggle mode)
+
+-- Keybind and mode
+local pronekey = DIK_keys.DIK_Z
+local pronekey_mode = 0  -- 0=Disabled, 1=Hold, 2=Toggle, 3=Hold+Toggle
+local walk_mode = 1  -- 0=Hold, 1=Toggle, 2=Hold+Toggle (default to Toggle)
+local crouch_mode = 1  -- 0=Hold, 1=Toggle, 2=Hold+Toggle (default to Toggle)
+
+-- Interface implementation
+function initialize()
+    utils.debug_log("[FLUID_STANCE] Initialized")
+end
+
+function shutdown()
+    utils.debug_log("[FLUID_STANCE] Shutdown")
+    prone_active = false
+    holding_prone_key = false
+    manually_exited_prone = false
+    exiting_prone_via_crouch = false
+    exiting_prone_via_walk = false
+    prone_exit_time = 0
+    prone_activated_by_this_press = false
+    walk_held_while_exiting = false
+    crouch_held_while_exiting = false
+    -- Cancel any pending TimeEvents
+    RemoveTimeEvent("ensure_crouch_after_prone", "check1")
+    RemoveTimeEvent("ensure_crouch_after_prone", "check2")
+    RemoveTimeEvent("ensure_walk_after_prone", "check1")
+    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+end
+
+function is_stance_active()
+    return prone_active
+end
+
+function is_handling_crouch()
+    return true  -- Fluid stance always handles crouch
+end
+
+function is_handling_walk()
+    return true  -- Fluid stance always handles walk
+end
+
+function set_pronekey(key)
+    pronekey = key
+end
+
+function set_pronekey_mode(mode)
+    pronekey_mode = mode
+    utils.debug_log("[FLUID_STANCE] Prone key mode set to: " .. tostring(mode))
+end
+
+function set_walk_mode(mode)
+    walk_mode = mode
+    utils.debug_log("[FLUID_STANCE] Walk mode set to: " .. tostring(mode))
+end
+
+function set_crouch_mode(mode)
+    crouch_mode = mode
+    utils.debug_log("[FLUID_STANCE] Crouch mode set to: " .. tostring(mode))
+end
+
+-- Generic prone exit handler - eliminates duplication between crouch/walk exit paths
+-- Returns: boolean indicating if manually_exited_prone flag should be set
+local function deactivate_prone_via_stance(config)
+    utils.debug_log(config.system_name .. " " .. config.stance_name .. " pressed while prone - deactivating prone, mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", mcAccel=" .. tostring(IsMoveState("mcAccel")))
+
+    -- Update exit time for protection window
+    prone_exit_time = time_global()
+
+    -- Cancel ALL prone exit TimeEvents (both crouch and walk)
+    RemoveTimeEvent("ensure_crouch_after_prone", "check1")
+    RemoveTimeEvent("ensure_crouch_after_prone", "check2")
+    RemoveTimeEvent("ensure_walk_after_prone", "check1")
+    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+
+    -- Force holding state to prevent toggle-off on release
+    state[config.holding_state_key] = true
+
+    -- Check if manual exit (captured before stance change)
+    -- Note: holding_prone_var is passed as a boolean VALUE, not a reference
+    local should_set_manual_exit = config.holding_prone_var
+
+    -- Set programmatic flag to prevent recursion
+    toggling_prone_programmatically = true
+
+    -- Turn off opposite stance (keep target stance active)
+    if IsMoveState(config.move_state_remove) then
+        level.press_action(bind_to_dik(config.key_binding_remove))
+    end
+
+    -- Create restoration TimeEvents to ensure target stance stays active
+    -- Closures capture config parameters for stance-specific behavior
+    CreateTimeEvent(config.timeevent_prefix, "check1", 0.01, function()
+        if not IsMoveState(config.move_state_keep) then
+            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off at 0.01s, restoring")
+            level.press_action(bind_to_dik(config.key_binding_keep))
+        end
+        return true
+    end)
+
+    CreateTimeEvent(config.timeevent_prefix, "check2", 0.05, function()
+        if not IsMoveState(config.move_state_keep) then
+            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off at 0.05s, restoring")
+            level.press_action(bind_to_dik(config.key_binding_keep))
+        end
+        return true
+    end)
+
+    toggling_prone_programmatically = false
+
+    utils.debug_log(config.system_name .. " " .. config.stance_name .. " exit complete, " .. config.move_state_keep .. "=" .. tostring(IsMoveState(config.move_state_keep)) .. ", " .. config.holding_state_key .. "=" .. tostring(state[config.holding_state_key]))
+
+    return should_set_manual_exit
+end
+
+-- Deactivate prone via crouch key
+local function deactivate_prone_via_crouch()
+    -- Set stance-specific flags
+    prone_active = false
+    exiting_prone_via_crouch = true
+    crouch_held_while_exiting = false  -- Reset, will be set by on_key_hold if user holds
+
+    -- Call generic helper with crouch-specific config
+    local should_set_manual_exit = deactivate_prone_via_stance({
+        stance_name = "Crouch",
+        system_name = "[FLUID_STANCE]",
+        holding_state_key = "holding_crouch",
+        holding_prone_var = holding_prone_key,
+        move_state_keep = "mcCrouch",
+        move_state_remove = "mcAccel",
+        key_binding_keep = key_bindings.kCROUCH,
+        key_binding_remove = key_bindings.kACCEL,
+        timeevent_prefix = "ensure_crouch_after_prone"
+    })
+
+    -- Set manual exit flag if needed
+    if should_set_manual_exit then
+        manually_exited_prone = true
+    end
+end
+
+-- Deactivate prone via walk key
+local function deactivate_prone_via_walk()
+    -- Set stance-specific flags
+    prone_active = false
+    exiting_prone_via_walk = true
+    walk_held_while_exiting = false  -- Reset, will be set by on_key_hold if user holds
+
+    -- Call generic helper with walk-specific config
+    local should_set_manual_exit = deactivate_prone_via_stance({
+        stance_name = "Walk",
+        system_name = "[FLUID_STANCE]",
+        holding_state_key = "holding_walk",
+        holding_prone_var = holding_prone_key,
+        move_state_keep = "mcAccel",
+        move_state_remove = "mcCrouch",
+        key_binding_keep = key_bindings.kACCEL,
+        key_binding_remove = key_bindings.kCROUCH,
+        timeevent_prefix = "ensure_walk_after_prone"
+    })
+
+    -- Set manual exit flag if needed
+    if should_set_manual_exit then
+        manually_exited_prone = true
+    end
+end
+
+function on_key_press(key)
+    -- Don't process crouch/walk if we're programmatically toggling prone
+    if toggling_prone_programmatically and (key == bind_to_dik(key_bindings.kCROUCH) or key == bind_to_dik(key_bindings.kACCEL)) then
+        return true
+    end
+
+    -- Crouch key pressed
+    if (key == bind_to_dik(key_bindings.kCROUCH)) then
+        -- Deactivate prone if active
+        if prone_active then
+            deactivate_prone_via_crouch()
+            -- Return early - don't let the crouch key press continue
+            return true
+        end
+        -- If walk is active, switch to crouch
+        if IsMoveState("mcAccel") then
+            level.press_action(bind_to_dik(key_bindings.kACCEL))
+        end
+        -- Let crouch key press continue normally
+        return false
+    end
+
+    -- Walk key pressed
+    if (key == bind_to_dik(key_bindings.kACCEL)) then
+        -- Deactivate prone if active
+        if prone_active then
+            deactivate_prone_via_walk()
+            -- Return early - don't let the walk key press continue
+            return true
+        end
+        -- If crouch is active, switch to walk
+        if IsMoveState("mcCrouch") then
+            level.press_action(bind_to_dik(key_bindings.kCROUCH))
+        end
+        -- Let walk key press continue normally
+        return false
+    end
+
+    -- Sprint cancels prone
+    if (key == bind_to_dik(stance_utils.get_sprint_key())) and prone_active then
+        if stance_utils.should_cancel_prone_for_sprint() then
+            utils.debug_log("[FLUID_STANCE] Sprint pressed while prone - canceling prone")
+            toggle_prone()
+        else
+            utils.debug_log("[FLUID_STANCE] Sprint pressed while prone but not moving forward - ignoring (hot_sprint_cancel enabled)")
+        end
+        return false  -- Let movement_base handle sprint
+    end
+
+    -- Prone key press (only if prone key mode is enabled)
+    if (key == pronekey) and pronekey_mode > 0 then
+        utils.debug_log("[FLUID_STANCE] Prone key pressed (mode=" .. tostring(pronekey_mode) .. "), prone_active=" .. tostring(prone_active) .. ", manually_exited_prone=" .. tostring(manually_exited_prone))
+        -- Don't toggle if we just manually exited prone or if we're currently exiting
+        if not manually_exited_prone and not exiting_prone_via_crouch and not exiting_prone_via_walk then
+            if pronekey_mode == 1 then
+                -- Hold mode: Only activate prone if not already prone
+                holding_prone_key = true
+                if not prone_active then
+                    toggle_prone()
+                    utils.debug_log("[FLUID_STANCE] Hold mode - entering prone")
+                else
+                    utils.debug_log("[FLUID_STANCE] Hold mode - already prone, holding to stay prone")
+                end
+            elseif pronekey_mode == 2 then
+                -- Toggle mode: Always toggle on press
+                toggle_prone()
+            elseif pronekey_mode == 3 then
+                -- Hold+Toggle mode: Only toggle if not already prone
+                if not prone_active then
+                    toggle_prone()
+                    prone_activated_by_this_press = true
+                    utils.debug_log("[FLUID_STANCE] Hold+Toggle mode - entering prone")
+                else
+                    prone_activated_by_this_press = false
+                    utils.debug_log("[FLUID_STANCE] Hold+Toggle mode - already prone, waiting for hold/tap decision")
+                end
+            end
+        else
+            utils.debug_log("[FLUID_STANCE] Skipping prone toggle - just manually exited or currently exiting")
+            manually_exited_prone = false
+        end
+        return true
+    end
+
+    return false
+end
+
+function on_key_hold(key)
+    -- Crouch hold (respects crouch mode setting)
+    if (key == bind_to_dik(key_bindings.kCROUCH)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcCrouch") then
+        if exiting_prone_via_crouch then
+            -- Track that crouch was held while exiting prone (for Hold+Toggle mode)
+            crouch_held_while_exiting = true
+            utils.debug_log("[FLUID_STANCE] Crouch held while exiting prone (crouch_mode=" .. tostring(crouch_mode) .. ")")
+            return true
+        else
+            -- Normal crouch hold behavior - respect crouch mode
+            if crouch_mode == 0 then
+                -- Hold mode: always track holding
+                state.holding_crouch = true
+            elseif crouch_mode == 2 then
+                -- Normal Hold+Toggle mode behavior (not exiting prone)
+                state.holding_crouch = true
+            end
+            if utils.is_modifier_key(key) then return true end
+            return true
+        end
+    -- Walk hold (respects walk mode setting)
+    elseif (key == bind_to_dik(key_bindings.kACCEL)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcAccel") then
+        if exiting_prone_via_walk then
+            -- Track that walk was held while exiting prone (for Hold+Toggle mode)
+            walk_held_while_exiting = true
+            utils.debug_log("[FLUID_STANCE] Walk held while exiting prone (walk_mode=" .. tostring(walk_mode) .. ")")
+            return true
+        else
+            -- Normal walk hold behavior - respect walk mode
+            if walk_mode == 0 then
+                -- Hold mode: always track holding
+                state.holding_walk = true
+            elseif walk_mode == 2 then
+                -- Normal Hold+Toggle mode behavior (not exiting prone)
+                state.holding_walk = true
+            end
+            if utils.is_modifier_key(key) then return true end
+            return true
+        end
+    -- Prone key hold (only if prone key mode is enabled)
+    elseif (key == pronekey) and pronekey_mode > 0 and ui_mcm.key_hold("holdortoggle", key) and prone_active then
+        -- Mode 1 (Hold): Already set holding on press
+        -- Mode 2 (Toggle): Don't set holding flag (pure toggle, no hold behavior)
+        -- Mode 3 (Hold+Toggle): Set holding flag to indicate it was held
+        if pronekey_mode == 3 then
+            holding_prone_key = true
+            utils.debug_log("[FLUID_STANCE] Prone key held (Hold+Toggle mode) - will toggle off on release")
+        end
+        return true
+    end
+
+    return false
+end
+
+function on_key_release(key)
+    -- Crouch release
+    if (key == bind_to_dik(key_bindings.kCROUCH)) and state.holding_crouch then
+        local time_since_exit = prone_exit_time and (time_global() - prone_exit_time) or 999999
+        utils.debug_log("[FLUID_STANCE] Crouch released, exiting_prone_via_crouch=" .. tostring(exiting_prone_via_crouch) .. ", crouch_held_while_exiting=" .. tostring(crouch_held_while_exiting) .. ", prone_active=" .. tostring(prone_active) .. ", mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", time_since_exit=" .. tostring(time_since_exit) .. ", crouch_mode=" .. tostring(crouch_mode))
+
+        -- Mode 0 (Hold): Always toggle off on release
+        -- Mode 1 (Toggle): Never toggle off on release (unless exiting prone)
+        -- Mode 2 (Hold+Toggle): Toggle off if held, keep if tapped
+
+        if exiting_prone_via_crouch then
+            -- Special case: exiting prone via crouch
+            -- Mode 2 (Hold+Toggle): Only toggle off if crouch was held while exiting
+            if crouch_mode == 2 then
+                if crouch_held_while_exiting and IsMoveState("mcCrouch") then
+                    utils.debug_log("[FLUID_STANCE] Crouch mode 2 (Hold+Toggle): held while exiting, toggling off")
+                    level.press_action(bind_to_dik(key_bindings.kCROUCH))
+                else
+                    utils.debug_log("[FLUID_STANCE] Crouch mode 2 (Hold+Toggle): tapped while exiting, keeping crouch")
+                end
+            -- Mode 0 (Hold): Always toggle off
+            elseif crouch_mode == 0 then
+                if IsMoveState("mcCrouch") then
+                    utils.debug_log("[FLUID_STANCE] Crouch mode 0 (Hold): toggling off on release")
+                    level.press_action(bind_to_dik(key_bindings.kCROUCH))
+                end
+            -- Mode 1 (Toggle): Keep crouch active (no toggle off)
+            else
+                utils.debug_log("[FLUID_STANCE] Crouch mode 1 (Toggle): keeping crouch active")
+            end
+        else
+            -- Normal crouch release (not exiting prone)
+            -- Don't toggle off if: exiting prone via crouch (within 200ms), OR prone is still active
+            if not (exiting_prone_via_crouch and time_since_exit < 200) and not prone_active and IsMoveState("mcCrouch") then
+                -- Mode 0 (Hold) or Mode 2 (Hold+Toggle): Toggle off
+                if crouch_mode == 0 or crouch_mode == 2 then
+                    utils.debug_log("[FLUID_STANCE] Crouch mode " .. tostring(crouch_mode) .. ": toggling off on release")
+                    level.press_action(bind_to_dik(key_bindings.kCROUCH))
+                else
+                    utils.debug_log("[FLUID_STANCE] Crouch mode 1 (Toggle): keeping crouch active")
+                end
+            end
+        end
+
+        state.holding_crouch = false
+        exiting_prone_via_crouch = false
+        crouch_held_while_exiting = false
+        utils.holdfix()
+        return true
+    elseif (key == bind_to_dik(key_bindings.kCROUCH)) and exiting_prone_via_crouch then
+        -- Check if prone is still active
+        if prone_active then
+            -- Still prone, don't toggle
+            utils.debug_log("[FLUID_STANCE] Quick crouch release after exiting prone - not toggling (prone still active)")
+        else
+            -- Prone was deactivated, allow normal toggle based on mode
+            utils.debug_log("[FLUID_STANCE] Crouch release after exiting prone - prone is off, crouch_mode=" .. tostring(crouch_mode))
+            -- Only toggle off for Hold mode (0), not for Toggle (1) or Hold+Toggle (2)
+            if crouch_mode == 0 and IsMoveState("mcCrouch") then
+                utils.debug_log("[FLUID_STANCE] Crouch mode 0 (Hold): toggling off")
+                level.press_action(bind_to_dik(key_bindings.kCROUCH))
+            end
+        end
+        exiting_prone_via_crouch = false
+        crouch_held_while_exiting = false
+        return true
+    end
+
+    -- Walk release
+    if (key == bind_to_dik(key_bindings.kACCEL)) and state.holding_walk then
+        local time_since_exit = prone_exit_time and (time_global() - prone_exit_time) or 999999
+        utils.debug_log("[FLUID_STANCE] Walk released, exiting_prone_via_walk=" .. tostring(exiting_prone_via_walk) .. ", walk_held_while_exiting=" .. tostring(walk_held_while_exiting) .. ", prone_active=" .. tostring(prone_active) .. ", mcAccel=" .. tostring(IsMoveState("mcAccel")) .. ", time_since_exit=" .. tostring(time_since_exit) .. ", walk_mode=" .. tostring(walk_mode))
+
+        -- Mode 0 (Hold): Always toggle off on release
+        -- Mode 1 (Toggle): Never toggle off on release (unless exiting prone)
+        -- Mode 2 (Hold+Toggle): Toggle off if held, keep if tapped
+
+        if exiting_prone_via_walk then
+            -- Special case: exiting prone via walk
+            -- Mode 2 (Hold+Toggle): Only toggle off if walk was held while exiting
+            if walk_mode == 2 then
+                if walk_held_while_exiting and IsMoveState("mcAccel") then
+                    utils.debug_log("[FLUID_STANCE] Walk mode 2 (Hold+Toggle): held while exiting, toggling off")
+                    level.press_action(bind_to_dik(key_bindings.kACCEL))
+                else
+                    utils.debug_log("[FLUID_STANCE] Walk mode 2 (Hold+Toggle): tapped while exiting, keeping walk")
+                end
+            -- Mode 0 (Hold): Always toggle off
+            elseif walk_mode == 0 then
+                if IsMoveState("mcAccel") then
+                    utils.debug_log("[FLUID_STANCE] Walk mode 0 (Hold): toggling off on release")
+                    level.press_action(bind_to_dik(key_bindings.kACCEL))
+                end
+            -- Mode 1 (Toggle): Keep walk active (no toggle off)
+            else
+                utils.debug_log("[FLUID_STANCE] Walk mode 1 (Toggle): keeping walk active")
+            end
+        else
+            -- Normal walk release (not exiting prone)
+            -- Don't toggle off if: exiting prone via walk (within 200ms), OR prone is still active
+            if not (exiting_prone_via_walk and time_since_exit < 200) and not prone_active and IsMoveState("mcAccel") then
+                -- Mode 0 (Hold) or Mode 2 (Hold+Toggle): Toggle off
+                if walk_mode == 0 or walk_mode == 2 then
+                    utils.debug_log("[FLUID_STANCE] Walk mode " .. tostring(walk_mode) .. ": toggling off on release")
+                    level.press_action(bind_to_dik(key_bindings.kACCEL))
+                else
+                    utils.debug_log("[FLUID_STANCE] Walk mode 1 (Toggle): keeping walk active")
+                end
+            end
+        end
+
+        state.holding_walk = false
+        exiting_prone_via_walk = false
+        walk_held_while_exiting = false
+        utils.holdfix()
+        return true
+    elseif (key == bind_to_dik(key_bindings.kACCEL)) and exiting_prone_via_walk then
+        -- Check if prone is still active
+        if prone_active then
+            -- Still prone, don't toggle
+            utils.debug_log("[FLUID_STANCE] Quick walk release after exiting prone - not toggling (prone still active)")
+        else
+            -- Prone was deactivated, allow normal toggle based on mode
+            utils.debug_log("[FLUID_STANCE] Walk release after exiting prone - prone is off, walk_mode=" .. tostring(walk_mode))
+            -- Only toggle off for Hold mode (0), not for Toggle (1) or Hold+Toggle (2)
+            if walk_mode == 0 and IsMoveState("mcAccel") then
+                utils.debug_log("[FLUID_STANCE] Walk mode 0 (Hold): toggling off")
+                level.press_action(bind_to_dik(key_bindings.kACCEL))
+            end
+        end
+        exiting_prone_via_walk = false
+        walk_held_while_exiting = false
+        return true
+    end
+
+    -- Prone key release (only if prone key mode is enabled)
+    if (key == pronekey) and pronekey_mode > 0 then
+        if pronekey_mode == 1 then
+            -- Hold mode: Toggle off on release if holding and prone
+            if holding_prone_key and prone_active and not manually_exited_prone then
+                toggle_prone()
+                utils.debug_log("[FLUID_STANCE] Hold mode - standing up on release")
+            end
+            holding_prone_key = false
+            manually_exited_prone = false
+            utils.holdfix()
+            return true
+        elseif pronekey_mode == 2 then
+            -- Toggle mode: Just clear flags, keep prone state
+            utils.debug_log("[FLUID_STANCE] Toggle mode - keeping prone state")
+            manually_exited_prone = false
+            utils.holdfix()
+            return true
+        elseif pronekey_mode == 3 then
+            -- Hold+Toggle mode: Behavior depends on hold status and whether prone was activated by this press
+            if holding_prone_key then
+                -- Was held
+                if prone_active and not manually_exited_prone then
+                    -- Held -> stand up on release (both cases: entered prone via this press OR was already prone)
+                    toggle_prone()
+                    if prone_activated_by_this_press then
+                        utils.debug_log("[FLUID_STANCE] Hold+Toggle mode (held) - entered prone then held, standing up (temporary)")
+                    else
+                        utils.debug_log("[FLUID_STANCE] Hold+Toggle mode (held) - was already prone, standing up")
+                    end
+                end
+            else
+                -- Was tapped (not held)
+                if not prone_activated_by_this_press and prone_active and not manually_exited_prone then
+                    -- Was already prone before press, tapped -> stand up
+                    toggle_prone()
+                    utils.debug_log("[FLUID_STANCE] Hold+Toggle mode (tapped) - was already prone, standing up")
+                else
+                    -- Entered prone via this press, tapped -> stay prone (permanent toggle)
+                    utils.debug_log("[FLUID_STANCE] Hold+Toggle mode (tapped) - entered prone, staying prone (permanent)")
+                end
+            end
+            holding_prone_key = false
+            prone_activated_by_this_press = false
+            manually_exited_prone = false
+            utils.holdfix()
+            return true
+        end
+    end
+
+    return false
+end
+
+function toggle_prone()
+    -- Set flag to prevent crouch/walk handlers from interfering
+    toggling_prone_programmatically = true
+
+    local should_cleanup
+    prone_active, should_cleanup = stance_utils.toggle_prone_state(prone_active, "[FLUID_STANCE]")
+
+    if should_cleanup then
+        toggling_prone_programmatically = false
+        return
+    end
+
+    -- Clear the flag after toggling is complete
+    toggling_prone_programmatically = false
+end

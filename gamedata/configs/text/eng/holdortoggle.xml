@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="windows-1251"?>
+<string_table>
+	<!-- Mod Title -->
+	<string id="ui_mcm_menu_holdortoggle">
+		<text>Hold or Toggle</text>
+	</string>
+
+	<!-- Tab Titles -->
+	<string id="ui_mcm_holdortoggle_main">
+		<text>Main Settings</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_qol">
+		<text>QoL Features</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_stance">
+		<text>Stance System</text>
+	</string>
+
+	<!-- ========================================== -->
+	<!-- MAIN TAB OPTIONS -->
+	<!-- ========================================== -->
+
+	<!-- hot_crouch -->
+	<string id="ui_mcm_mcm_holdortoggle_main_hot_crouch">
+		<text>Hold or Toggle - Crouch</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_crouch_hint">
+		<text>Crouch Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_crouch_hint_desc">
+		<text>Hold: Hold key to crouch (toggle OFF). Toggle: Tap to toggle crouch (toggle ON). Hold+Toggle: Both behaviors enabled (toggle ON).</text>
+	</string>
+
+	<!-- hot_walk -->
+	<string id="ui_mcm_mcm_holdortoggle_main_hot_walk">
+		<text>Hold or Toggle - Walk</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_walk_hint">
+		<text>Walk Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_walk_hint_desc">
+		<text>Hold: Hold key to walk (toggle OFF). Toggle: Tap to toggle walk (toggle ON). Hold+Toggle: Both behaviors enabled (toggle ON).</text>
+	</string>
+
+	<!-- hot_sprint -->
+	<string id="ui_mcm_mcm_holdortoggle_main_hot_sprint">
+		<text>Hold or Toggle - Sprint</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_sprint_hint">
+		<text>Sprint Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_sprint_hint_desc">
+		<text>Hold: Hold key to sprint (toggle OFF). Toggle: Tap to toggle sprint (toggle ON). Hold+Toggle: Both behaviors enabled (toggle ON).</text>
+	</string>
+
+	<!-- hot_lean -->
+	<string id="ui_mcm_mcm_holdortoggle_main_hot_lean">
+		<text>Hold or Toggle - Lean</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_lean_hint">
+		<text>Lean Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_lean_hint_desc">
+		<text>Hold: Hold key to lean (toggle OFF). Toggle: Tap to toggle lean (toggle ON). Hold+Toggle: Both behaviors enabled (toggle ON).</text>
+	</string>
+
+	<!-- autowalkey -->
+	<string id="ui_mcm_mcm_holdortoggle_main_autowalkey">
+		<text>Autowalk Key</text>
+	</string>
+	<string id="ui_mcm_mcm_holdortoggle_main_autowalkey_desc">
+		<text>Both the autowalk and forward/back keys will toggle autowalking off.</text>
+	</string>
+
+	<!-- modifier -->
+	<string id="ui_mcm_mcm_holdortoggle_main_modifier">
+		<text>Modifier</text>
+	</string>
+
+	<!-- mode -->
+	<string id="ui_mcm_mcm_holdortoggle_main_mode">
+		<text>Mode</text>
+	</string>
+
+	<!-- debug_logging -->
+	<string id="ui_mcm_holdortoggle_debug_logging_hint">
+		<text>Debug Logging</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_debug_logging_hint_desc">
+		<text>Enable debug logging for troubleshooting. Logs detailed information about inventory, PDA, and detector interactions to the game log file.</text>
+	</string>
+
+	<!-- ========================================== -->
+	<!-- QOL TAB OPTIONS -->
+	<!-- ========================================== -->
+
+	<!-- hot_sprint_cancel -->
+	<string id="ui_mcm_mcm_holdortoggle_qol_hot_sprint_cancel">
+		<text>Alternative Sprint Canceling</text>
+	</string>
+	<string id="ui_mcm_mcm_holdortoggle_qol_hot_sprint_cancel_desc">
+		<text>Sprinting will only cancel actions when MOVING FORWARD so you can use LSHIFT modifiers fluidly when Sprint is on LSHIFT</text>
+	</string>
+
+	<!-- opposite_lean_cancel -->
+	<string id="ui_mcm_opposite_lean_cancel_hint">
+		<text>Opposite Lean Cancels Current Lean</text>
+	</string>
+	<string id="ui_mcm_opposite_lean_cancel_hint_desc">
+		<text>In Toggle/Hold+Toggle lean mode, pressing the opposite lean key will cancel the current lean instead of switching to the opposite direction. Makes it easier to cancel lean quickly.</text>
+	</string>
+
+	<!-- hot_inventory -->
+	<string id="ui_mcm_holdortoggle_inventory_on_release">
+		<text>Inventory on Key Release</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_inventory_on_release_desc">
+		<text>Opens inventory on key release after a short press. Hold the inventory key to use other actions (like Quick Action Wheel). Quick tap to toggle inventory open/closed. Works with whatever key you have bound to inventory in game settings.</text>
+	</string>
+
+	<!-- hot_pda -->
+	<string id="ui_mcm_holdortoggle_pda_on_release">
+		<text>PDA on Key Release</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_pda_on_release_desc">
+		<text>Opens PDA on key release after a short press. Hold the PDA key to use other actions (like Key Wrapper > Show Detector when holding CAPSLOCK) without opening the PDA menu. Restores your previous weapon/detector state when closing PDA.</text>
+	</string>
+
+	<!-- prevent_weapon_detector -->
+	<string id="ui_mcm_prevent_weapon_with_detector_hint">
+		<text>Prevent Weapon with Detector</text>
+	</string>
+	<string id="ui_mcm_prevent_weapon_with_detector_hint_desc">
+		<text>When switching from a two-handed weapon to detector, prevents one-handed weapons from appearing alongside the detector. Goes to empty hands first, then shows detector.</text>
+	</string>
+
+	<!-- qaw_ignore_modifiers -->
+	<string id="ui_mcm_qaw_ignore_modifiers_hint">
+		<text>Quick Action Wheel: Ignore Modifiers on Hold</text>
+	</string>
+	<string id="ui_mcm_qaw_ignore_modifiers_hint_desc">
+		<text>When HOLDING the QAW key, ignores modifier key state (Shift/Ctrl/Alt). Simple press still respects modifiers. Useful if you want long-press to always work even while holding sprint or other modifier keys.</text>
+	</string>
+
+	<!-- qaw_close_with_reload -->
+	<string id="ui_mcm_qaw_close_with_reload_hint">
+		<text>Quick Action Wheel: Close with Reload Key</text>
+	</string>
+	<string id="ui_mcm_qaw_close_with_reload_hint_desc">
+		<text>When QAW is open: Reload key (R) will close the QAW menu.</text>
+	</string>
+
+	<!-- ========================================== -->
+	<!-- STANCE TAB OPTIONS -->
+	<!-- ========================================== -->
+
+	<!-- Section Headers -->
+	<string id="ui_mcm_holdortoggle_stance_general">
+		<text>General Prone Settings</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_stance_keybind">
+		<text>Prone Keybind</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_stance_progressive">
+		<text>Progressive Stance Settings</text>
+	</string>
+
+	<!-- stance_system -->
+	<string id="ui_mcm_mcm_stance_system_hint">
+		<text>Stance System Type</text>
+	</string>
+	<string id="ui_mcm_mcm_stance_system_hint_desc">
+		<text>Vanilla Prone: Crouch+walk = prone.&#10;Fluid Stance: Dedicated prone key. NO crouch+walk=prone.&#10;Progressive Stance: Hold crouch to prone.</text>
+	</string>
+
+	<!-- hot_prone -->
+	<string id="ui_mcm_mcm_holdortoggle_stance_hot_prone">
+		<text>Prone Key Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_holdortoggle_stance_hot_prone_desc">
+		<text>Enables a dedicated prone keybind. Prone activates both crouch and walk. You can also exit prone by pressing crouch or walk keys. REQUIRES Hold or Toggle - Crouch AND Hold or Toggle - Walk to be enabled.</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_prone_hint">
+		<text>Prone Key Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_prone_hint_desc">
+		<text>Disabled: No prone key. Hold: Hold key to go prone. Toggle: Tap to toggle prone. Hold+Toggle: Both behaviors enabled.</text>
+	</string>
+
+	<!-- pronekey -->
+	<string id="ui_mcm_mcm_holdortoggle_stance_pronekey">
+		<text>Prone Key</text>
+	</string>
+	<string id="ui_mcm_mcm_holdortoggle_stance_pronekey_desc">
+		<text>The key to activate prone mode (crouch + walk)</text>
+	</string>
+
+	<!-- unbind_pronekey -->
+	<string id="ui_mcm_mcm_holdortoggle_stance_unbind_pronekey">
+		<text>Unbind Prone Key</text>
+	</string>
+
+	<!-- prog_hold_time_mode -->
+	<string id="ui_mcm_mcm_prog_hold_time_mode_hint">
+		<text>Progressive Hold Time Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_prog_hold_time_mode_hint_desc">
+		<text>Use MCM Hold Time: Uses the global MCM hold time setting. Custom Delay: Set a specific delay for progressive prone detection.</text>
+	</string>
+
+	<!-- prog_hold_time_custom -->
+	<string id="ui_mcm_mcm_prog_hold_time_custom_hint">
+		<text>Progressive Hold Delay</text>
+	</string>
+	<string id="ui_mcm_mcm_prog_hold_time_custom_hint_desc">
+		<text>How long (in milliseconds) you must hold the crouch key to trigger stance transitions. Controls: standing to prone, crouch to prone, and prone to standing. Lower = faster transitions, higher = easier to tap without accidentally changing stance.</text>
+	</string>
+
+	<!-- ========================================== -->
+	<!-- LIST/RADIO CONTENT -->
+	<!-- ========================================== -->
+
+	<!-- Radio Content for hot_crouch -->
+	<string id="mcm_holdortoggle_main_hot_crouch_lst_Hold">
+		<text>Hold</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_crouch_lst_Toggle">
+		<text>Toggle</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_crouch_lst_Hold+Toggle">
+		<text>Hold+Toggle</text>
+	</string>
+
+	<!-- Radio Content for hot_walk -->
+	<string id="mcm_holdortoggle_main_hot_walk_lst_Hold">
+		<text>Hold</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_walk_lst_Toggle">
+		<text>Toggle</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_walk_lst_Hold+Toggle">
+		<text>Hold+Toggle</text>
+	</string>
+
+	<!-- Radio Content for hot_sprint -->
+	<string id="mcm_holdortoggle_main_hot_sprint_lst_Hold">
+		<text>Hold</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_sprint_lst_Toggle">
+		<text>Toggle</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_sprint_lst_Hold+Toggle">
+		<text>Hold+Toggle</text>
+	</string>
+
+	<!-- Radio Content for hot_lean -->
+	<string id="mcm_holdortoggle_main_hot_lean_lst_Hold">
+		<text>Hold</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_lean_lst_Toggle">
+		<text>Toggle</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_lean_lst_Hold+Toggle">
+		<text>Hold+Toggle</text>
+	</string>
+
+	<!-- Radio Content for hot_prone -->
+	<string id="mcm_holdortoggle_stance_hot_prone_lst_Disabled">
+		<text>Disabled</text>
+	</string>
+	<string id="mcm_holdortoggle_stance_hot_prone_lst_Hold">
+		<text>Hold</text>
+	</string>
+	<string id="mcm_holdortoggle_stance_hot_prone_lst_Toggle">
+		<text>Toggle</text>
+	</string>
+	<string id="mcm_holdortoggle_stance_hot_prone_lst_Hold+Toggle">
+		<text>Hold+Toggle</text>
+	</string>
+
+	<!-- List Content for stance_system -->
+	<string id="mcm_holdortoggle_stance_stance_system_lst_Vanilla Prone">
+		<text>Vanilla Prone</text>
+	</string>
+	<string id="mcm_holdortoggle_stance_stance_system_lst_Fluid Stance">
+		<text>Fluid Stance (Dedicated prone key)</text>
+	</string>
+	<string id="mcm_holdortoggle_stance_stance_system_lst_Progressive (Hold to Prone)">
+		<text>Progressive (Hold Crouch to Prone)</text>
+	</string>
+
+	<!-- List Content for prog_hold_time_mode -->
+	<string id="mcm_holdortoggle_stance_prog_hold_time_mode_lst_Use MCM Hold Time">
+		<text>Use MCM Hold Time</text>
+	</string>
+	<string id="mcm_holdortoggle_stance_prog_hold_time_mode_lst_Custom Delay">
+		<text>Custom Delay</text>
+	</string>
+
+</string_table>

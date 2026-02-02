@@ -1,0 +1,121 @@
+-- holdortoggle/features/lean.script
+-- Leaning hold/release logic
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+
+-- MCM options
+local hot_lean = 0 -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+local opposite_lean_cancel = false
+
+-- Prevent our own level.press_action calls from triggering opposite lean cancel logic
+local toggling_lean_programmatically = false
+
+function update_options()
+    if ui_mcm then
+        hot_lean = ui_mcm.get("mcm/holdortoggle/main/hot_lean")
+        opposite_lean_cancel = ui_mcm.get("mcm/holdortoggle/qol/opposite_lean_cancel")
+    end
+end
+
+function actor_on_update()
+    -- No deferred operations needed - opposite lean cancel is handled in on_key_press
+end
+
+function on_before_key_press(dik, bind, dis, flags)
+    -- No blocking logic here - we handle opposite lean cancel in on_key_press
+    return false
+end
+
+function on_key_press(key)
+    -- Skip if we're programmatically toggling lean (prevents ping-pong effect)
+    if toggling_lean_programmatically then
+        utils.debug_log("[LEAN] on_key_press: skipping (toggling_lean_programmatically=true)")
+        return
+    end
+
+    -- Track lean press for Hold mode (0)
+    -- For Hold mode, immediately mark as holding to mimic hold behavior
+    if (key == bind_to_dik(key_bindings.kL_LOOKOUT)) then
+        if hot_lean == 0 then
+            state.holding_lean_left = true
+        end
+    elseif (key == bind_to_dik(key_bindings.kR_LOOKOUT)) then
+        if hot_lean == 0 then
+            state.holding_lean_right = true
+        end
+    end
+
+    -- QoL feature: In Toggle/Hold+Toggle mode, tapping opposite lean cancels current lean instead of switching
+    if opposite_lean_cancel and (hot_lean == 1 or hot_lean == 2) then
+        -- If pressing lean left while lean right is active
+        if (key == bind_to_dik(key_bindings.kL_LOOKOUT)) and IsMoveState("mcRLookout") then
+            -- In Hold+Toggle mode, don't cancel if right lean is being held (allow switching)
+            if hot_lean == 2 and state.holding_lean_right then
+                utils.debug_log("[LEAN] on_key_press: right lean is held, allowing switch to left")
+                return
+            end
+
+            -- Cancel both leans
+            utils.debug_log("[LEAN] on_key_press: canceling both leans (lean left pressed while lean right active)")
+            toggling_lean_programmatically = true
+            level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT))
+            level.press_action(bind_to_dik(key_bindings.kL_LOOKOUT))
+            toggling_lean_programmatically = false
+            return
+        end
+
+        -- If pressing lean right while lean left is active
+        if (key == bind_to_dik(key_bindings.kR_LOOKOUT)) and IsMoveState("mcLLookout") then
+            -- In Hold+Toggle mode, don't cancel if left lean is being held (allow switching)
+            if hot_lean == 2 and state.holding_lean_left then
+                utils.debug_log("[LEAN] on_key_press: left lean is held, allowing switch to right")
+                return
+            end
+
+            -- Cancel both leans
+            utils.debug_log("[LEAN] on_key_press: canceling both leans (lean right pressed while lean left active)")
+            toggling_lean_programmatically = true
+            level.press_action(bind_to_dik(key_bindings.kL_LOOKOUT))
+            level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT))
+            toggling_lean_programmatically = false
+            return
+        end
+    end
+end
+
+function on_key_hold(key)
+    local is_modifier = utils.is_modifier_key(key)
+
+    -- Lean hold
+    -- For Hold+Toggle mode (2), track when key passes hold threshold
+    if (key == bind_to_dik(key_bindings.kL_LOOKOUT)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcLLookout") then
+        -- Only set holding for Hold+Toggle mode (2)
+        -- Hold mode (0) already set it in on_key_press
+        if hot_lean == 2 then
+            state.holding_lean_left = true
+        end
+        if is_modifier then return end
+    elseif (key == bind_to_dik(key_bindings.kR_LOOKOUT)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcRLookout") then
+        -- Only set holding for Hold+Toggle mode (2)
+        -- Hold mode (0) already set it in on_key_press
+        if hot_lean == 2 then
+            state.holding_lean_right = true
+        end
+        if is_modifier then return end
+    end
+end
+
+function on_key_release(key)
+    if (key == bind_to_dik(key_bindings.kL_LOOKOUT)) and state.holding_lean_left then
+        if IsMoveState("mcLLookout") then
+            level.press_action(bind_to_dik(key_bindings.kL_LOOKOUT))
+        end
+        state.holding_lean_left = false
+    elseif (key == bind_to_dik(key_bindings.kR_LOOKOUT)) and state.holding_lean_right then
+        if IsMoveState("mcRLookout") then
+            level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT))
+        end
+        state.holding_lean_right = false
+    end
+end

@@ -1,0 +1,63 @@
+-- holdortoggle/stance_utils.script
+-- Shared utility functions for stance systems
+-- Eliminates duplication across vanilla_prone, simple_prone, fluid_stance, progressive_stance
+
+local utils = holdortoggle_utils
+local state = holdortoggle_state
+
+-- Helper function to get the correct sprint key binding based on toggle setting
+function get_sprint_key()
+    return state.is_sprint_toggled and key_bindings.kSPRINT_TOGGLE or key_bindings.kSPRINT
+end
+
+-- Generic prone toggle state logic
+-- Returns: new_prone_active, should_cleanup
+-- Parameters:
+--   current_prone_active: boolean - current prone state
+--   system_name: string - name for logging (e.g., "[VANILLA_PRONE]", "[FLUID_STANCE]")
+-- Note: This function assumes crouch/walk are in Toggle or Hold+Toggle mode (game toggles ON)
+function toggle_prone_state(current_prone_active, system_name)
+    local was_active = current_prone_active
+    local new_prone_active = not current_prone_active
+
+    utils.debug_log(system_name .. " toggle_prone called: was_active=" .. tostring(was_active) .. ", now prone_active=" .. tostring(new_prone_active))
+
+    -- Safety check - ensure actor exists
+    if not db.actor then
+        utils.debug_log("! " .. system_name .. " ERROR] Actor not found, aborting toggle")
+        return current_prone_active, true  -- No change, signal cleanup needed
+    end
+
+    if new_prone_active then
+        -- Activate prone: enable crouch and walk
+        -- Using press_action works because game toggles are ON (enforced by config)
+        if not IsMoveState("mcCrouch") then
+            level.press_action(bind_to_dik(key_bindings.kCROUCH))
+        end
+        if not IsMoveState("mcAccel") then
+            level.press_action(bind_to_dik(key_bindings.kACCEL))
+        end
+    else
+        -- Deactivate prone: disable crouch and walk
+        if IsMoveState("mcCrouch") then
+            level.press_action(bind_to_dik(key_bindings.kCROUCH))
+        end
+        if IsMoveState("mcAccel") then
+            level.press_action(bind_to_dik(key_bindings.kACCEL))
+        end
+    end
+
+    return new_prone_active, false
+end
+
+-- Check if prone should be canceled for sprint
+-- Returns: boolean - true if prone should be canceled, false otherwise
+function should_cancel_prone_for_sprint()
+    local hot_sprint_cancel = ui_mcm and ui_mcm.get("mcm/holdortoggle/qol/hot_sprint_cancel") or false
+    local is_moving_forward = IsMoveState("mcFwd")
+    local should_cancel = not hot_sprint_cancel or is_moving_forward
+
+    utils.debug_log("[STANCE_UTILS] should_cancel_prone_for_sprint: hot_sprint_cancel=" .. tostring(hot_sprint_cancel) .. ", is_moving_forward=" .. tostring(is_moving_forward) .. ", should_cancel=" .. tostring(should_cancel))
+
+    return should_cancel
+end

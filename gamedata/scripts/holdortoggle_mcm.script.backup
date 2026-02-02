@@ -1,0 +1,547 @@
+-- Initialize module-level variables
+is_crouch_toggled = ui_options.get("control/general/crouch_toggle")
+is_walk_toggled = ui_options.get("control/general/walk_toggle")
+is_sprint_toggled = ui_options.get("control/general/sprint_toggle")
+is_leaning_toggled = ui_options.get("control/general/lookout_toggle")
+is_aiming_toggled = ui_options.get("control/general/aim_toggle")
+holding_crouch = false
+holding_walk = false
+holding_sprint = false
+holding_lean_left = false
+holding_lean_right = false
+holding_inventory = false
+holding_pda = false
+holding_prone = false
+autowalking = false
+toggling_prone_programmatically = false
+manually_exited_prone = false
+exiting_prone_via_crouch = false
+exiting_prone_via_walk = false
+prone_exit_time = 0
+moving = false
+inventoring = false
+prone_active = false
+
+function on_mcm_load()
+	local options = {
+		id = "holdortoggle",
+		sh = true,
+		gr = {
+			{id = "title", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_menu_holdortoggle", size = {512, 50}, spacing = 20},
+			{id = "hot_crouch", type = "check", val = 1, def = false},
+			{id = "hot_walk", type = "check", val = 1, def = false},
+			{id = "hot_prone", type = "check", val = 1, def = false},
+			{id = "pronekey", type = "key_bind", val = 2, def = DIK_keys.DIK_Z},
+			{id = "prone_keybind_only", type = "check", val = 1, def = true},
+			{id = "hot_sprint", type = "check", val = 1, def = false},
+			{id = "hot_sprint_cancel", type = "check", val = 1, def = false},
+			{id = "hot_lean", type = "check", val = 1, def = false},
+			{id = "hot_inventory", type = "check", val = 1, def = false},
+			{id = "hot_pda", type = "check", val = 1, def = false},
+			{id = "autowalkey", type = "key_bind", val = 2, def = DIK_keys.DIK_W},
+			{id = "modifier", type = ui_mcm.kb_mod_radio, val = 2, def = 3, hint = "mcm_kb_modifier", content = {{0,"mcm_kb_mod_none"}, {1,"mcm_kb_mod_shift"}, {2,"mcm_kb_mod_ctrl"}, {3,"mcm_kb_mod_alt"}}},
+			{id = "mode", type = ui_mcm.kb_mod_radio, val = 2, def = 2, hint = "mcm_kb_mode", content = {{0,"mcm_kb_mode_press"}, {1,"mcm_kb_mode_dtap"}, {2,"mcm_kb_mode_hold"}}},
+		}
+	}
+	return options
+end
+
+function on_option_change()
+	if ui_mcm then
+		hot_crouch = ui_mcm.get("holdortoggle/hot_crouch")
+		hot_walk = ui_mcm.get("holdortoggle/hot_walk")
+		hot_sprint = ui_mcm.get("holdortoggle/hot_sprint")
+		hot_sprint_cancel = ui_mcm.get("holdortoggle/hot_sprint_cancel")
+		hot_lean = ui_mcm.get("holdortoggle/hot_lean")
+		hot_inventory = ui_mcm.get("holdortoggle/hot_inventory")
+		hot_pda = ui_mcm.get("holdortoggle/hot_pda")
+		hot_prone = ui_mcm.get("holdortoggle/hot_prone")
+		prone_keybind_only = ui_mcm.get("holdortoggle/prone_keybind_only")
+
+		pronekey = ui_mcm.get("holdortoggle/pronekey")
+		autowalkey = ui_mcm.get("holdortoggle/autowalkey")
+		modifier = ui_mcm.get("holdortoggle/modifier")
+		mode = ui_mcm.get("holdortoggle/mode")
+		-- turn toggles on if user enables MCM option but does not have toggles on
+		if hot_crouch and not is_crouch_toggled then
+			get_console():execute("g_crouch_toggle on")
+			ui_options.set("control/general/crouch_toggle", true)
+		end
+		
+		if hot_walk and not is_walk_toggled then
+			get_console():execute("g_walk_toggle on")
+			ui_options.set("control/general/walk_toggle", true)
+		end
+		
+		if hot_sprint and not is_sprint_toggled then
+			get_console():execute("g_sprint_toggle on")
+			ui_options.set("control/general/sprint_toggle", true)
+		end
+		
+		if hot_lean and not is_leaning_toggled then
+			get_console():execute("g_lookout_toggle on")
+			ui_options.set("control/general/lookout_toggle", true)
+		end
+
+		if hot_prone then
+			-- Prone requires both hot_crouch and hot_walk to be enabled
+			if not hot_crouch or not hot_walk then
+				log("[HOT_PRONE] ERROR: hot_prone requires both hot_crouch and hot_walk to be enabled!")
+				hot_prone = false
+				return
+			end
+
+			if not is_crouch_toggled then
+				get_console():execute("g_crouch_toggle on")
+				ui_options.set("control/general/crouch_toggle", true)
+			end
+			if not is_walk_toggled then
+				get_console():execute("g_walk_toggle on")
+				ui_options.set("control/general/walk_toggle", true)
+			end
+		end
+
+		if hot_pda then get_console():execute("bind active_jobs kP") end
+	end
+end
+
+function actor_on_first_update()
+	on_option_change()
+end
+
+function actor_on_update()
+	if autowalking then level.hold_action(bind_to_dik(key_bindings.kFWD)) end
+	-- make actor sprint if moving and key is held
+	if holding_sprint and (moving or autowalking) and not IsMoveState("mcSprint") then level.press_action(bind_to_dik(key_bindings.kSPRINT_TOGGLE)) end
+end
+
+function on_before_key_press(dik, bind, dis, flags)
+	-- Block default inventory action when hot_inventory is enabled (but not when inventory is already open)
+	if bind == key_bindings.kINVENTORY and hot_inventory then
+		-- If inventory is already open, don't block - let the default close action happen
+		if ui_inventory.GUI and ui_inventory.GUI:IsShown() then
+			log("[HOT_INV] on_before_key_press: inventory open, not blocking, dik=" .. tostring(dik))
+			return
+		end
+		log("[HOT_INV] on_before_key_press: blocking and tracking, dik=" .. tostring(dik))
+		-- Set inventoring flag here since on_key_press won't be called when we block
+		inventoring = true
+		if holding_inventory then holding_inventory = false end
+		-- Block the default inventory action
+		flags.ret_value = false
+	end
+	-- stops sprint canceling actions unless actor is moving forward
+	if bind == key_bindings.kSPRINT_TOGGLE and hot_sprint_cancel and not IsMoveState("mcFwd") then flags.ret_value = false end
+end
+
+function on_key_press(key)
+	-- Don't process crouch/walk if we're programmatically toggling prone
+	if toggling_prone_programmatically and (key == bind_to_dik(key_bindings.kCROUCH) or key == bind_to_dik(key_bindings.kACCEL)) then
+		return
+	end
+	
+	-- Fluid stance switching when prone_keybind_only is enabled
+	if hot_prone and prone_keybind_only then
+		-- Crouch key pressed
+		if (key == bind_to_dik(key_bindings.kCROUCH)) then
+			-- Deactivate prone if active
+			if prone_active then
+				log("[HOT_PRONE]  Crouch pressed while prone - deactivating prone, mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", mcAccel=" .. tostring(IsMoveState("mcAccel")))
+				prone_active = false
+				exiting_prone_via_crouch = true
+				prone_exit_time = time_global()
+				-- Cancel any pending restoration checks
+				RemoveTimeEvent("ensure_crouch_after_prone", "check1")
+				RemoveTimeEvent("ensure_crouch_after_prone", "check2")
+				RemoveTimeEvent("ensure_walk_after_prone", "check1")
+				RemoveTimeEvent("ensure_walk_after_prone", "check2")
+				-- Force holding_crouch to true so release won't toggle crouch off
+				holding_crouch = true
+				-- Only set manually_exited_prone flag if we're currently holding prone key
+				if holding_prone then
+					manually_exited_prone = true
+				end
+				toggling_prone_programmatically = true
+				-- Turn off walk only (crouch should stay active)
+				if IsMoveState("mcAccel") then
+					level.press_action(bind_to_dik(key_bindings.kACCEL))
+				end
+				-- Check quickly to ensure crouch stays on
+				CreateTimeEvent("ensure_crouch_after_prone", "check1", 0.01, function()
+					if not IsMoveState("mcCrouch") then
+						log("[HOT_PRONE]  Crouch off at 0.01s, restoring")
+						level.press_action(bind_to_dik(key_bindings.kCROUCH))
+					end
+					return true
+				end)
+				CreateTimeEvent("ensure_crouch_after_prone", "check2", 0.05, function()
+					if not IsMoveState("mcCrouch") then
+						log("[HOT_PRONE]  Crouch off at 0.05s, restoring")
+						level.press_action(bind_to_dik(key_bindings.kCROUCH))
+					end
+					return true
+				end)
+				toggling_prone_programmatically = false
+				log("[HOT_PRONE]  Crouch exit complete, mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", holding_crouch=" .. tostring(holding_crouch))
+				-- Return early - don't let the crouch key press continue
+				return
+			end
+			-- If walk is active, switch to crouch
+			if IsMoveState("mcAccel") then
+				level.press_action(bind_to_dik(key_bindings.kACCEL))
+			end
+			-- Let crouch key press continue normally
+		end
+
+		-- Walk key pressed
+		if (key == bind_to_dik(key_bindings.kACCEL)) then
+			-- Deactivate prone if active
+			if prone_active then
+				log("[HOT_PRONE]  Walk pressed while prone - deactivating prone, mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", mcAccel=" .. tostring(IsMoveState("mcAccel")))
+				prone_active = false
+				exiting_prone_via_walk = true
+				prone_exit_time = time_global()
+				-- Cancel any pending restoration checks
+				RemoveTimeEvent("ensure_crouch_after_prone", "check1")
+				RemoveTimeEvent("ensure_crouch_after_prone", "check2")
+				RemoveTimeEvent("ensure_walk_after_prone", "check1")
+				RemoveTimeEvent("ensure_walk_after_prone", "check2")
+				-- Force holding_walk to true so release won't toggle walk off
+				holding_walk = true
+				-- Only set manually_exited_prone flag if we're currently holding prone key
+				if holding_prone then
+					manually_exited_prone = true
+				end
+				toggling_prone_programmatically = true
+				-- Turn off crouch only (walk should stay active)
+				if IsMoveState("mcCrouch") then
+					level.press_action(bind_to_dik(key_bindings.kCROUCH))
+				end
+				-- Check quickly to ensure walk stays on
+				CreateTimeEvent("ensure_walk_after_prone", "check1", 0.01, function()
+					if not IsMoveState("mcAccel") then
+						log("[HOT_PRONE]  Walk off at 0.01s, restoring")
+						level.press_action(bind_to_dik(key_bindings.kACCEL))
+					end
+					return true
+				end)
+				CreateTimeEvent("ensure_walk_after_prone", "check2", 0.05, function()
+					if not IsMoveState("mcAccel") then
+						log("[HOT_PRONE]  Walk off at 0.05s, restoring")
+						level.press_action(bind_to_dik(key_bindings.kACCEL))
+					end
+					return true
+				end)
+				toggling_prone_programmatically = false
+				log("[HOT_PRONE]  Walk exit complete, mcAccel=" .. tostring(IsMoveState("mcAccel")) .. ", holding_walk=" .. tostring(holding_walk))
+				-- Return early - don't let the walk key press continue
+				return
+			end
+			-- If crouch is active, switch to walk
+			if IsMoveState("mcCrouch") then
+				level.press_action(bind_to_dik(key_bindings.kCROUCH))
+			end
+			-- Let walk key press continue normally
+		end
+	else
+		-- Simple logic when prone_keybind_only is disabled
+		-- Handle crouch key press when prone is active
+		if hot_prone and (key == bind_to_dik(key_bindings.kCROUCH)) and prone_active and not toggling_prone_programmatically and not exiting_prone_via_crouch then
+			log("[HOT_PRONE]  Crouch pressed while prone (simple mode) - deactivating prone")
+			-- Deactivate walk, keep crouch active
+			toggling_prone_programmatically = true
+			if IsMoveState("mcAccel") then
+				level.press_action(bind_to_dik(key_bindings.kACCEL))
+			end
+			toggling_prone_programmatically = false
+			prone_active = false
+			exiting_prone_via_crouch = true
+			-- Only set flag if we're currently holding prone key
+			if holding_prone then
+				manually_exited_prone = true
+			end
+			-- Cancel any previous timer and create a new one
+			RemoveTimeEvent("simple_prone_exit", "clear_flag")
+			CreateTimeEvent("simple_prone_exit", "clear_flag", 0.3, function()
+				exiting_prone_via_crouch = false
+				log("[HOT_PRONE]  Cleared exiting_prone_via_crouch flag (simple mode)")
+				return true
+			end)
+			return
+		end
+
+		-- Handle walk key press when prone is active
+		if hot_prone and (key == bind_to_dik(key_bindings.kACCEL)) and prone_active and not toggling_prone_programmatically and not exiting_prone_via_walk then
+			log("[HOT_PRONE]  Walk pressed while prone (simple mode) - deactivating prone")
+			-- Deactivate crouch, keep walk active
+			toggling_prone_programmatically = true
+			if IsMoveState("mcCrouch") then
+				level.press_action(bind_to_dik(key_bindings.kCROUCH))
+			end
+			toggling_prone_programmatically = false
+			prone_active = false
+			exiting_prone_via_walk = true
+			-- Only set flag if we're currently holding prone key
+			if holding_prone then
+				manually_exited_prone = true
+			end
+			-- Cancel any previous timer and create a new one
+			RemoveTimeEvent("simple_prone_exit", "clear_flag")
+			CreateTimeEvent("simple_prone_exit", "clear_flag", 0.3, function()
+				exiting_prone_via_walk = false
+				log("[HOT_PRONE]  Cleared exiting_prone_via_walk flag (simple mode)")
+				return true
+			end)
+			return
+		end
+	end
+
+	-- sprint cancel lean, aim, and prone toggles
+	if (key == bind_to_dik(key_bindings.kSPRINT_TOGGLE)) then
+		if not (holding_lean_left or holding_lean_right) then
+			if IsMoveState("mcLLookout") then level.press_action(bind_to_dik(key_bindings.kL_LOOKOUT)) end
+			if IsMoveState("mcRLookout") then level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT)) end
+		end
+
+		if axr_main.weapon_is_zoomed and not is_aiming_toggled then level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM)) end
+		
+		-- Cancel prone when sprinting
+		if hot_prone and prone_active then
+			log("[HOT_PRONE]  Sprint pressed while prone - canceling prone")
+			toggle_prone()
+		end
+	end
+	-- layered keys
+	if (key == bind_to_dik(key_bindings.kINVENTORY)) then
+		log("[HOT_INV] on_key_press: inventory key pressed, hot_inventory=" .. tostring(hot_inventory))
+		inventoring = true
+
+		if holding_inventory then holding_inventory = false end
+	end
+
+	if (key == DIK_keys.DIK_CAPITAL) and holding_pda then holding_pda = false end
+	-- dirty move check
+	if (key == bind_to_dik(key_bindings.kFWD)) or (key == bind_to_dik(key_bindings.kBACK)) then
+		moving = true
+
+		if autowalking then autowalk() end
+	end
+
+	if (key == autowalkey) then
+		if (mode == 0) and ui_mcm.get_mod_key(modifier) then autowalk() end
+
+		if (mode == 1) and ui_mcm.get_mod_key(modifier) and ui_mcm.double_tap("holdortoggle", key) then autowalk() end
+	end
+
+	-- prone key press (only if hot_prone is enabled)
+	if hot_prone and (key == pronekey) then
+		log("[HOT_PRONE]  prone key pressed, manually_exited_prone=" .. tostring(manually_exited_prone) .. ", exiting_prone_via_crouch=" .. tostring(exiting_prone_via_crouch) .. ", exiting_prone_via_walk=" .. tostring(exiting_prone_via_walk))
+		-- Don't toggle if we just manually exited prone or if we're currently exiting
+		if not manually_exited_prone and not exiting_prone_via_crouch and not exiting_prone_via_walk then
+			toggle_prone()
+		else
+			log("[HOT_PRONE]  Skipping prone toggle - just manually exited or currently exiting")
+			manually_exited_prone = false
+		end
+	end
+end
+
+function on_key_hold(key)
+	-- Check if this is a modifier key (Shift/Ctrl/Alt) to preserve modifier state
+	local is_modifier = (key == DIK_keys.DIK_LSHIFT) or (key == DIK_keys.DIK_RSHIFT) or
+	                    (key == DIK_keys.DIK_LCONTROL) or (key == DIK_keys.DIK_RCONTROL) or
+	                    (key == DIK_keys.DIK_LMENU) or (key == DIK_keys.DIK_RMENU)
+
+	if (key == bind_to_dik(key_bindings.kCROUCH)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcCrouch") and hot_crouch and not exiting_prone_via_stance then
+		holding_crouch = true
+		-- If crouch is bound to a modifier key, don't let holdfix() reset it
+		if is_modifier then return end
+	elseif (key == bind_to_dik(key_bindings.kACCEL)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcAccel") and hot_walk and not exiting_prone_via_stance then
+		holding_walk = true
+		if is_modifier then return end
+	elseif (key == bind_to_dik(key_bindings.kSPRINT_TOGGLE)) and ui_mcm.key_hold("holdortoggle", key) and hot_sprint then
+		holding_sprint = true
+		-- If sprint is bound to Shift, don't interfere with it being used as a modifier for other actions
+		if is_modifier then return end
+	elseif (key == bind_to_dik(key_bindings.kL_LOOKOUT)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcLLookout") and hot_lean then
+		holding_lean_left = true
+		if is_modifier then return end
+	elseif (key == bind_to_dik(key_bindings.kR_LOOKOUT)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcRLookout") and hot_lean then
+		holding_lean_right = true
+		if is_modifier then return end
+	elseif (key == bind_to_dik(key_bindings.kINVENTORY)) and ui_mcm.key_hold("holdortoggle", key) and hot_inventory then
+		log("[HOT_INV] on_key_hold: inventory key held")
+		holding_inventory = true
+	elseif (key == DIK_keys.DIK_CAPITAL) and ui_mcm.key_hold("holdortoggle", key) and hot_pda then holding_pda = true
+	elseif (key == pronekey) and ui_mcm.key_hold("holdortoggle", key) and hot_prone and prone_keybind_only and prone_active then
+		holding_prone = true
+	elseif (key == autowalkey) and ui_mcm.get_mod_key(modifier) and (mode == 2) and ui_mcm.key_hold("holdortoggle", key) then autowalk() end
+end
+
+function on_key_release(key)
+	if (key == bind_to_dik(key_bindings.kCROUCH)) and holding_crouch then
+		if prone_keybind_only then
+			-- Advanced logic with time-based toggle prevention
+			local time_since_exit = prone_exit_time and (time_global() - prone_exit_time) or 999999
+			log("[HOT_PRONE]  Crouch released, exiting_prone_via_crouch=" .. tostring(exiting_prone_via_crouch) .. ", prone_active=" .. tostring(prone_active) .. ", mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", time_since_exit=" .. tostring(time_since_exit))
+			-- Don't toggle off if: exiting prone via crouch (within 200ms), OR prone is still active
+			if not (exiting_prone_via_crouch and time_since_exit < 200) and not prone_active and IsMoveState("mcCrouch") then
+				level.press_action(bind_to_dik(key_bindings.kCROUCH))
+			end
+		else
+			-- Simple logic - just check if prone is active
+			if not prone_active and IsMoveState("mcCrouch") then
+				level.press_action(bind_to_dik(key_bindings.kCROUCH))
+			end
+		end
+		holding_crouch = false
+		exiting_prone_via_crouch = false
+		holdfix()
+	elseif (key == bind_to_dik(key_bindings.kCROUCH)) and exiting_prone_via_crouch then
+		-- Check if prone is still active
+		if prone_active then
+			-- Still prone, don't toggle
+			log("[HOT_PRONE]  Quick crouch release after exiting prone - not toggling (prone still active)")
+		else
+			-- Prone was deactivated, allow normal toggle
+			log("[HOT_PRONE]  Crouch release after exiting prone - prone is off, allowing toggle")
+			if IsMoveState("mcCrouch") then
+				level.press_action(bind_to_dik(key_bindings.kCROUCH))
+			end
+		end
+		exiting_prone_via_crouch = false
+	elseif (key == bind_to_dik(key_bindings.kACCEL)) and holding_walk then
+		if prone_keybind_only then
+			-- Advanced logic with time-based toggle prevention
+			local time_since_exit = prone_exit_time and (time_global() - prone_exit_time) or 999999
+			log("[HOT_PRONE]  Walk released, exiting_prone_via_walk=" .. tostring(exiting_prone_via_walk) .. ", prone_active=" .. tostring(prone_active) .. ", mcAccel=" .. tostring(IsMoveState("mcAccel")) .. ", time_since_exit=" .. tostring(time_since_exit))
+			-- Don't toggle off if: exiting prone via walk (within 200ms), OR prone is still active
+			if not (exiting_prone_via_walk and time_since_exit < 200) and not prone_active and IsMoveState("mcAccel") then
+				level.press_action(bind_to_dik(key_bindings.kACCEL))
+			end
+		else
+			-- Simple logic - just check if prone is active
+			if not prone_active and IsMoveState("mcAccel") then
+				level.press_action(bind_to_dik(key_bindings.kACCEL))
+			end
+		end
+		holding_walk = false
+		exiting_prone_via_walk = false
+		holdfix()
+	elseif (key == bind_to_dik(key_bindings.kACCEL)) and exiting_prone_via_walk then
+		-- Check if prone is still active
+		if prone_active then
+			-- Still prone, don't toggle
+			log("[HOT_PRONE]  Quick walk release after exiting prone - not toggling (prone still active)")
+		else
+			-- Prone was deactivated, allow normal toggle
+			log("[HOT_PRONE]  Walk release after exiting prone - prone is off, allowing toggle")
+			if IsMoveState("mcAccel") then
+				level.press_action(bind_to_dik(key_bindings.kACCEL))
+			end
+		end
+		exiting_prone_via_walk = false
+	elseif (key == bind_to_dik(key_bindings.kSPRINT_TOGGLE)) and holding_sprint then
+		if IsMoveState("mcSprint") then level.press_action(bind_to_dik(key_bindings.kSPRINT_TOGGLE)) end
+		holding_sprint = false
+		holdfix()
+	elseif (key == bind_to_dik(key_bindings.kL_LOOKOUT)) and holding_lean_left then
+		if IsMoveState("mcLLookout") then level.press_action(bind_to_dik(key_bindings.kL_LOOKOUT)) end
+		holding_lean_left = false
+	elseif (key == bind_to_dik(key_bindings.kR_LOOKOUT)) and holding_lean_right then
+		if IsMoveState("mcRLookout") then level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT)) end
+		holding_lean_right = false
+	elseif (key == bind_to_dik(key_bindings.kINVENTORY)) and hot_inventory then
+		log("[HOT_INV] on_key_release: inventory key released, holding_inventory=" .. tostring(holding_inventory) .. ", inventoring=" .. tostring(inventoring))
+		if not holding_inventory and inventoring then
+			-- Check if inventory is already open
+			if ui_inventory.GUI and ui_inventory.GUI:IsShown() then
+				log("[HOT_INV] Closing inventory!")
+				ui_inventory.GUI:Close()
+			else
+				log("[HOT_INV] Opening inventory!")
+				ui_inventory.start("inventory")
+			end
+		end
+		holding_inventory = false
+		inventoring = false
+	elseif (key == DIK_keys.DIK_CAPITAL) and hot_pda then
+		if not holding_pda then level.press_action(bind_to_dik(key_bindings.kACTIVE_JOBS)) end
+		holding_pda = false
+	elseif (key == pronekey) and holding_prone and hot_prone then
+		log("[HOT_PRONE]  prone key released (was holding), prone_active=" .. tostring(prone_active))
+		-- Turn off prone on release if we were holding and didn't manually exit
+		if prone_active and not manually_exited_prone then
+			toggle_prone()
+		end
+		holding_prone = false
+		manually_exited_prone = false
+		holdfix()
+	elseif (key == bind_to_dik(key_bindings.kFWD)) or (key == bind_to_dik(key_bindings.kBACK)) then moving = false
+    end
+end
+-- fixes variables latching due to excess key presses
+function holdfix()
+	ui_inventory.is_shift_pressed = false
+	ui_mcm.MOD_NONE = true
+	ui_mcm.MOD_CTRL = false
+	ui_mcm.MOD_SHIFT = false
+	ui_mcm.MOD_ALT = false
+end
+
+function autowalk()
+	autowalking = not autowalking
+end
+
+function toggle_prone()
+	-- Store current state before toggling
+	local was_active = prone_active
+	prone_active = not prone_active
+	
+	-- Debug logging
+	log("[HOT_PRONE]  toggle_prone called: was_active=" .. tostring(was_active) .. ", now prone_active=" .. tostring(prone_active))
+	
+	-- Set flag to prevent crouch/walk handlers from interfering
+	toggling_prone_programmatically = true
+
+	-- Safety check - ensure actor exists
+	if not db.actor then
+		log("! [PRONE ERROR]  Actor not found, aborting toggle")
+		toggling_prone_programmatically = false
+		return
+	end
+
+	if prone_active then
+		-- Activate prone: enable crouch and walk
+		if not IsMoveState("mcCrouch") then
+			level.press_action(bind_to_dik(key_bindings.kCROUCH))
+		end
+		if not IsMoveState("mcAccel") then
+			level.press_action(bind_to_dik(key_bindings.kACCEL))
+		end
+	else
+		-- Deactivate prone: disable crouch and walk
+		if IsMoveState("mcCrouch") then
+			level.press_action(bind_to_dik(key_bindings.kCROUCH))
+		end
+		if IsMoveState("mcAccel") then
+			level.press_action(bind_to_dik(key_bindings.kACCEL))
+		end
+	end
+	
+	-- Clear the flag after toggling is complete
+	toggling_prone_programmatically = false
+end
+
+function on_game_start()
+    RegisterScriptCallback("on_option_change", on_option_change)
+    RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+    RegisterScriptCallback("actor_on_update", actor_on_update)
+    RegisterScriptCallback("on_key_press", on_key_press)
+    RegisterScriptCallback("on_key_hold", on_key_hold)
+    RegisterScriptCallback("on_key_release", on_key_release)
+    RegisterScriptCallback("on_before_key_press", on_before_key_press)
+end
+
+-- cant close trader ui
+-- cant take all loot

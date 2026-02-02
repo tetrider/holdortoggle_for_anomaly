@@ -1,0 +1,184 @@
+-- holdortoggle/stance_systems/vanilla_prone.script
+-- Vanilla prone system - minimal interference, pure STALKER behavior
+-- Just adds a dedicated prone toggle key with mode support, everything else is vanilla
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+local stance_utils = holdortoggle_stance_utils
+
+-- Stance system state
+local prone_active = false
+local holding_prone_key = false
+local prone_activated_by_this_press = false
+local prone_exit_time = 0  -- Track when prone was exited (for 200ms animation delay)
+
+-- Mode setting
+local pronekey_mode = 0 -- 0=Disabled, 1=Hold, 2=Toggle, 3=Hold+Toggle
+
+-- Keybind
+local pronekey = DIK_keys.DIK_Z
+
+-- Interface implementation
+function initialize()
+    utils.debug_log("[VANILLA_PRONE] Initialized")
+end
+
+function shutdown()
+    utils.debug_log("[VANILLA_PRONE] Shutdown")
+    prone_active = false
+    holding_prone_key = false
+    prone_activated_by_this_press = false
+    prone_exit_time = 0
+end
+
+function is_stance_active()
+    return prone_active
+end
+
+function is_handling_crouch()
+    return false  -- Let vanilla/movement_base handle crouch
+end
+
+function is_handling_walk()
+    return false  -- Let vanilla/movement_base handle walk
+end
+
+function set_pronekey(key)
+    pronekey = key
+end
+
+function set_pronekey_mode(mode)
+    pronekey_mode = mode
+    utils.debug_log("[VANILLA_PRONE] Prone key mode set to: " .. tostring(mode))
+end
+
+function on_key_press(key)
+    -- Sprint cancels prone (for consistency with other systems)
+    if (key == bind_to_dik(stance_utils.get_sprint_key())) and prone_active then
+        if stance_utils.should_cancel_prone_for_sprint() then
+            utils.debug_log("[VANILLA_PRONE] Sprint pressed while prone - canceling prone")
+            toggle_prone()
+        else
+            utils.debug_log("[VANILLA_PRONE] Sprint pressed while prone but not moving forward - ignoring (hot_sprint_cancel enabled)")
+        end
+        return false  -- Let movement_base handle sprint
+    end
+
+    -- Prone key press
+    if (key == pronekey) then
+        utils.debug_log("[VANILLA_PRONE] Prone key pressed, mode=" .. tostring(pronekey_mode))
+
+        -- Sync prone_active with actual game state (in case vanilla exit happened via crouch/walk)
+        local actually_prone = IsMoveState("mcCrouch") and IsMoveState("mcAccel")
+        local just_synced = false
+        if prone_active and not actually_prone then
+            utils.debug_log("[VANILLA_PRONE] Detected vanilla prone exit (via crouch/walk key) - syncing state")
+            prone_active = false
+            prone_activated_by_this_press = false  -- Clear this flag since we didn't activate prone this press
+            just_synced = true
+            -- Don't set prone_exit_time here - vanilla game already handled the animation
+        end
+
+        -- Check 200ms animation delay after prone exit (skip if we just synced - vanilla handled animation)
+        if not just_synced then
+            local time_since_exit = prone_exit_time and (time_global() - prone_exit_time) or 999999
+            if not prone_active and time_since_exit < 200 then
+                utils.debug_log("[VANILLA_PRONE] Skipping prone activation - within 200ms animation delay (time_since_exit=" .. tostring(time_since_exit) .. "ms)")
+                return true
+            end
+        end
+
+        -- Mode 1: Hold - Only activate prone if not already prone
+        if pronekey_mode == 1 then
+            holding_prone_key = true
+            if not prone_active then
+                toggle_prone()
+            else
+                utils.debug_log("[VANILLA_PRONE] Hold mode - already prone, holding to stay prone")
+            end
+        -- Mode 2: Toggle - Always toggle on press
+        elseif pronekey_mode == 2 then
+            toggle_prone()
+        -- Mode 3: Hold+Toggle
+        elseif pronekey_mode == 3 then
+            if not prone_active then
+                -- Entering prone for the first time this press
+                toggle_prone()
+                prone_activated_by_this_press = true
+            else
+                -- Already prone - mark that we didn't activate it this press
+                -- (Will stand up on tap or hold+release)
+                prone_activated_by_this_press = false
+                holding_prone_key = false  -- Start in non-holding state (will be set if held)
+            end
+        end
+
+        return true
+    end
+
+    return false
+end
+
+function on_key_hold(key)
+    -- Prone key hold
+    if (key == pronekey) and ui_mcm.key_hold("holdortoggle", key) and prone_active then
+        holding_prone_key = true
+        return true
+    end
+    return false
+end
+
+function on_key_release(key)
+    -- Prone key release
+    if (key == pronekey) then
+        utils.debug_log("[VANILLA_PRONE] Prone key released, prone_active=" .. tostring(prone_active) .. ", mode=" .. tostring(pronekey_mode) .. ", holding=" .. tostring(holding_prone_key))
+
+        -- Mode 1: Hold - Toggle off on release if holding and prone
+        if pronekey_mode == 1 then
+            if holding_prone_key and prone_active then
+                toggle_prone()
+            end
+            holding_prone_key = false
+            utils.holdfix()
+            return true
+        -- Mode 2: Toggle - No release handling needed
+        elseif pronekey_mode == 2 then
+            utils.debug_log("[VANILLA_PRONE] Toggle mode - no release handling")
+            return true
+        -- Mode 3: Hold+Toggle - Behavior depends on hold status and activation
+        elseif pronekey_mode == 3 then
+            if holding_prone_key then
+                -- Was holding - stand up (both cases: entered prone or already prone)
+                if prone_active then
+                    toggle_prone()
+                    utils.debug_log("[VANILLA_PRONE] Hold+Toggle mode (held) - standing up")
+                end
+            else
+                -- Tapped - stand up only if was already prone
+                if not prone_activated_by_this_press and prone_active then
+                    toggle_prone()
+                    utils.debug_log("[VANILLA_PRONE] Hold+Toggle mode (tapped) - was already prone, standing up")
+                else
+                    utils.debug_log("[VANILLA_PRONE] Hold+Toggle mode (tapped) - entered prone, staying prone")
+                end
+            end
+            holding_prone_key = false
+            prone_activated_by_this_press = false
+            utils.holdfix()
+            return true
+        end
+    end
+
+    return false
+end
+
+function toggle_prone()
+    local was_active = prone_active
+    prone_active = stance_utils.toggle_prone_state(prone_active, "[VANILLA_PRONE]")
+
+    -- Track exit time for 200ms animation delay
+    if was_active and not prone_active then
+        prone_exit_time = time_global()
+        utils.debug_log("[VANILLA_PRONE] Exited prone, setting 200ms animation delay")
+    end
+end

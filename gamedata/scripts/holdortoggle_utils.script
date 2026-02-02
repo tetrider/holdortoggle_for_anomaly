@@ -1,0 +1,33 @@
+-- holdortoggle/utils.script
+-- Utility functions
+
+-- Debug logging
+local debug_logging_enabled = false
+
+function update_debug_logging()
+    if ui_mcm then
+        debug_logging_enabled = ui_mcm.get("mcm/holdortoggle/main/debug_logging")
+    end
+end
+
+function debug_log(msg)
+    if debug_logging_enabled then
+        log(msg)
+    end
+end
+
+-- Fixes variables latching due to excess key presses
+function holdfix()
+    ui_inventory.is_shift_pressed = false
+    ui_mcm.MOD_NONE = true
+    ui_mcm.MOD_CTRL = false
+    ui_mcm.MOD_SHIFT = false
+    ui_mcm.MOD_ALT = false
+end
+
+-- Check if key is a modifier key (Shift/Ctrl/Alt)
+function is_modifier_key(key)
+    return (key == DIK_keys.DIK_LSHIFT) or (key == DIK_keys.DIK_RSHIFT) or
+           (key == DIK_keys.DIK_LCONTROL) or (key == DIK_keys.DIK_RCONTROL) or
+           (key == DIK_keys.DIK_LMENU) or (key == DIK_keys.DIK_RMENU)
+end

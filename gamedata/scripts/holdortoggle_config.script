@@ -1,0 +1,242 @@
+-- holdortoggle/config.script
+-- MCM configuration and option management
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+
+-- Module references (set by core)
+local movement_base = nil
+local lean = nil
+local inventory = nil
+local autowalk = nil
+local vanilla_prone = nil
+local fluid_stance = nil
+local progressive_stance = nil
+local qaw = nil
+
+function set_modules(modules)
+    movement_base = modules.movement_base
+    lean = modules.lean
+    inventory = modules.inventory
+    autowalk = modules.autowalk
+    vanilla_prone = modules.vanilla_prone
+    fluid_stance = modules.fluid_stance
+    progressive_stance = modules.progressive_stance
+    qaw = modules.qaw
+end
+
+-- Unbind prone key function
+function unbind_pronekey_func()
+    utils.debug_log("[HOLDORTOGGLE CONFIG] unbind_pronekey_func called")
+    if ui_mcm then
+        local old_value = ui_mcm.get("mcm/holdortoggle/stance/pronekey")
+        utils.debug_log("[HOLDORTOGGLE CONFIG] Old pronekey value: " .. tostring(old_value))
+        ui_mcm.set("mcm/holdortoggle/stance/pronekey", -1)
+        local new_value = ui_mcm.get("mcm/holdortoggle/stance/pronekey")
+        utils.debug_log("[HOLDORTOGGLE CONFIG] New pronekey value: " .. tostring(new_value))
+    else
+        utils.debug_log("[HOLDORTOGGLE CONFIG] ERROR: ui_mcm not available")
+    end
+end
+
+-- MCM menu definition
+function on_mcm_load()
+    local options = {
+        id = "holdortoggle",
+        sh = false,
+        text = "ui_mcm_menu_holdortoggle",
+        gr = {
+            -- Main Settings Tab
+            {id = "main", sh = true, text = "ui_mcm_holdortoggle_main", gr = {
+                {id = "hot_crouch", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_crouch_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
+                {id = "hot_walk", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_walk_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
+                {id = "hot_sprint", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_sprint_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
+                {id = "hot_lean", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_lean_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
+                {id = "autowalkey", type = "key_bind", val = 2, def = DIK_W},
+                {id = "modifier", type = ui_mcm.kb_mod_radio, val = 2, def = 3, hint = "mcm_kb_modifier", content = {{0,"mcm_kb_mod_none"}, {1,"mcm_kb_mod_shift"}, {2,"mcm_kb_mod_ctrl"}, {3,"mcm_kb_mod_alt"}}},
+                {id = "mode", type = ui_mcm.kb_mod_radio, val = 2, def = 2, hint = "mcm_kb_mode", content = {{0,"mcm_kb_mode_press"}, {1,"mcm_kb_mode_dtap"}, {2,"mcm_kb_mode_hold"}}},
+                {id = "debug_logging", type = "check", val = 1, def = false, hint = "holdortoggle_debug_logging_hint"},
+            }},
+            -- QoL Features Tab
+            {id = "qol", sh = true, text = "ui_mcm_holdortoggle_qol", gr = {
+                {id = "hot_sprint_cancel", type = "check", val = 1, def = false},
+                {id = "opposite_lean_cancel", type = "check", val = 1, def = false, hint = "opposite_lean_cancel_hint"},
+                {id = "hot_inventory", type = "check", val = 1, def = false, hint = "holdortoggle_inventory_on_release"},
+                {id = "hot_pda", type = "check", val = 1, def = false, hint = "holdortoggle_pda_on_release"},
+                {id = "prevent_weapon_detector", type = "check", val = 1, def = false, hint = "prevent_weapon_with_detector_hint"},
+                {id = "qaw_ignore_modifiers", type = "check", val = 1, def = false, hint = "qaw_ignore_modifiers_hint"},
+                {id = "qaw_close_with_reload", type = "check", val = 1, def = false, hint = "qaw_close_with_reload_hint"},
+            }},
+            -- Stance System Tab
+            {id = "stance", sh = true, text = "ui_mcm_holdortoggle_stance", gr = {
+                -- General Prone Settings
+                {id = "title_general", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_holdortoggle_stance_general", size = {512, 50}, spacing = 20},
+                {id = "stance_system", type = "list", val = 2, def = 0, hint = "mcm_stance_system_hint", content = {{0,"Vanilla Prone"}, {1,"Fluid Stance"}, {2,"Progressive (Hold to Prone)"}}},
+
+                -- Prone Keybind Settings
+                {id = "title_keybind", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_holdortoggle_stance_keybind", size = {512, 50}, spacing = 20},
+                {id = "hot_prone", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_prone_hint", content = {{0,"Disabled"}, {1,"Hold"}, {2,"Toggle"}, {3,"Hold+Toggle"}}},
+                {id = "pronekey", type = "key_bind", val = 2, def = DIK_keys.DIK_Z},
+                {id = "unbind_pronekey", type = "button", functor_ui = {unbind_pronekey_func}},
+
+                -- Progressive Stance Settings
+                {id = "title_progressive", type = "slide", link = "ui_options_slider_player", text = "ui_mcm_holdortoggle_stance_progressive", size = {512, 50}, spacing = 20},
+                {id = "prog_hold_time_mode", type = "list", val = 2, def = 0, hint = "mcm_prog_hold_time_mode_hint", content = {{0,"Use MCM Hold Time"}, {1,"Custom Delay"}}},
+                {id = "prog_hold_time_custom", type = "track", val = 2, def = 200, min = 50, max = 1000, step = 50, hint = "mcm_prog_hold_time_custom_hint"},
+            }},
+        }
+    }
+    return options, "mcm"
+end
+
+-- Sync MCM values from game settings
+function sync_from_game_settings()
+    if not ui_mcm then
+        utils.debug_log("[CONFIG SYNC] ui_mcm not available")
+        return
+    end
+
+    utils.debug_log("[CONFIG SYNC] Starting sync_from_game_settings")
+
+    -- Read game toggle settings
+    state.refresh_toggle_settings()
+
+    utils.debug_log("[CONFIG SYNC] Game toggle states - crouch: " .. tostring(state.is_crouch_toggled) .. ", walk: " .. tostring(state.is_walk_toggled) .. ", sprint: " .. tostring(state.is_sprint_toggled))
+
+    -- For crouch, walk, and sprint: we keep toggles ON and mimic Hold in our scripts
+    -- Sprint toggle always ON to ensure proper action canceling (lean, aim, prone)
+    -- No sync needed anymore
+
+    utils.debug_log("[CONFIG SYNC] Completed sync_from_game_settings")
+end
+
+-- Handle option changes
+function on_option_change()
+    if not ui_mcm then return end
+
+    -- Update debug logging setting first
+    utils.update_debug_logging()
+
+    utils.debug_log("[CONFIG] on_option_change called")
+
+    -- Load all options
+    local hot_crouch = ui_mcm.get("mcm/holdortoggle/main/hot_crouch") -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+    local hot_walk = ui_mcm.get("mcm/holdortoggle/main/hot_walk") -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+    local hot_sprint = ui_mcm.get("mcm/holdortoggle/main/hot_sprint") -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+    local hot_lean = ui_mcm.get("mcm/holdortoggle/main/hot_lean") -- 0=Hold, 1=Toggle, 2=Hold+Toggle
+    local hot_prone = ui_mcm.get("mcm/holdortoggle/stance/hot_prone") -- 0=Disabled, 1=Hold, 2=Toggle, 3=Hold+Toggle
+    local stance_system = ui_mcm.get("mcm/holdortoggle/stance/stance_system")
+    local pronekey = ui_mcm.get("mcm/holdortoggle/stance/pronekey")
+
+    utils.debug_log("[CONFIG] Loaded MCM values - crouch: " .. tostring(hot_crouch) .. ", walk: " .. tostring(hot_walk) .. ", sprint: " .. tostring(hot_sprint) .. ", lean: " .. tostring(hot_lean) .. ", prone: " .. tostring(hot_prone))
+
+    -- Always keep game toggles ON for crouch, walk, and sprint
+    -- We mimic Hold behavior in our scripts by toggling off on release
+    -- Mode: 0=Hold (mimicked), 1=Toggle (native), 2=Hold+Toggle (both)
+
+    -- Crouch - always ensure toggle is ON
+    utils.debug_log("[CONFIG] Processing crouch - mode: " .. tostring(hot_crouch) .. ", current game toggle: " .. tostring(state.is_crouch_toggled))
+    if not state.is_crouch_toggled then
+        utils.debug_log("[CONFIG] Enabling crouch toggle (always ON for all modes)")
+        get_console():execute("g_crouch_toggle on")
+        ui_options.set("control/general/crouch_toggle", true)
+    else
+        utils.debug_log("[CONFIG] Crouch toggle already ON")
+    end
+
+    -- Walk - always ensure toggle is ON
+    utils.debug_log("[CONFIG] Processing walk - mode: " .. tostring(hot_walk) .. ", current game toggle: " .. tostring(state.is_walk_toggled))
+    if not state.is_walk_toggled then
+        utils.debug_log("[CONFIG] Enabling walk toggle (always ON for all modes)")
+        get_console():execute("g_walk_toggle on")
+        ui_options.set("control/general/walk_toggle", true)
+    else
+        utils.debug_log("[CONFIG] Walk toggle already ON")
+    end
+
+    -- Sprint - always ensure toggle is ON
+    utils.debug_log("[CONFIG] Processing sprint - mode: " .. tostring(hot_sprint) .. ", current game toggle: " .. tostring(state.is_sprint_toggled))
+    if not state.is_sprint_toggled then
+        utils.debug_log("[CONFIG] Enabling sprint toggle (always ON for all modes)")
+        get_console():execute("g_sprint_toggle on")
+        ui_options.set("control/general/sprint_toggle", true)
+    else
+        utils.debug_log("[CONFIG] Sprint toggle already ON")
+    end
+
+    -- Handle stance system selection
+    -- Progressive stance always activates (based on stance_system), others require hot_prone > 0
+    local should_activate_stance = (stance_system == 2) or (hot_prone and hot_prone > 0)
+
+    if should_activate_stance then
+        -- Note: Crouch and walk toggles are always ON now
+        -- All modes (Hold, Toggle, Hold+Toggle) work with toggles enabled
+        -- Hold behavior is mimicked in the scripts by toggling off on release
+
+        -- Progressive stance: handles crouch internally, respects walk mode
+        if stance_system == 2 then
+            utils.debug_log("[CONFIG] Progressive stance selected - all crouch/walk modes supported")
+        end
+
+        -- Shutdown previous stance system if different
+        if state.active_stance_system then
+            state.active_stance_system.shutdown()
+        end
+
+        -- Select and initialize stance system based on user choice
+        if stance_system == 0 then
+            state.active_stance_system = vanilla_prone
+            utils.debug_log("[CONFIG] Activating vanilla prone system")
+        elseif stance_system == 1 then
+            state.active_stance_system = fluid_stance
+            utils.debug_log("[CONFIG] Activating fluid stance system")
+        elseif stance_system == 2 then
+            state.active_stance_system = progressive_stance
+            utils.debug_log("[CONFIG] Activating progressive stance system (hold to prone)")
+        else
+            -- Default to vanilla prone
+            state.active_stance_system = vanilla_prone
+            utils.debug_log("[CONFIG] Activating vanilla prone system (default)")
+        end
+
+        -- Set pronekey and hot_prone mode for the stance system
+        state.active_stance_system.set_pronekey(pronekey)
+        state.active_stance_system.set_pronekey_mode(hot_prone or 0)
+
+        -- Fluid stance: pass both crouch and walk modes
+        if stance_system == 1 then
+            if state.active_stance_system.set_crouch_mode then
+                state.active_stance_system.set_crouch_mode(hot_crouch)
+            end
+            if state.active_stance_system.set_walk_mode then
+                state.active_stance_system.set_walk_mode(hot_walk)
+            end
+        -- Progressive stance: pass walk mode only
+        elseif stance_system == 2 and state.active_stance_system.set_walk_mode then
+            state.active_stance_system.set_walk_mode(hot_walk)
+        end
+
+        state.active_stance_system.initialize()
+    else
+        -- Disable stance system
+        if state.active_stance_system then
+            state.active_stance_system.shutdown()
+            state.active_stance_system = nil
+            utils.debug_log("[CONFIG] Stance system disabled")
+        end
+    end
+
+    -- Refresh toggle settings from game options
+    state.refresh_toggle_settings()
+
+    utils.debug_log("[CONFIG] Final game toggle states - crouch: " .. tostring(state.is_crouch_toggled) .. ", walk: " .. tostring(state.is_walk_toggled) .. ", sprint: " .. tostring(state.is_sprint_toggled))
+
+    -- Update all module options
+    if movement_base then movement_base.update_options() end
+    if lean then lean.update_options() end
+    if inventory then inventory.update_options() end
+    if autowalk then autowalk.update_options() end
+    if qaw then qaw.update_options() end
+
+    utils.debug_log("[CONFIG] on_option_change completed")
+end
