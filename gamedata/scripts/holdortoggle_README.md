@@ -77,7 +77,7 @@ Priority: stance system > inventory > lean > movement_base
 
 ## QoL Features
 
-- **Alternative Sprint Cancel** - Sprint only cancels actions when moving forward (LSHIFT can be used for modifiers)
+- **Alternative Sprint Cancel** - Sprint only cancels actions when moving forward, preserves body position (LSHIFT can be used for modifiers)
 - **Opposite Lean Cancel** - In Toggle/Hold+Toggle mode, opposite lean key cancels current lean. In Hold+Toggle mode, held lean allows switching instead.
 - **Inventory on Release** - Quick tap opens inventory, hold for other actions (e.g., Quick Action Wheel)
 - **PDA on Release** - Quick tap opens PDA, hold for other actions (e.g., detector via Key Wrapper). Saves current weapon/detector state and restores it when closing.
