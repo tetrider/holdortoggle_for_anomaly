@@ -51,7 +51,7 @@ function actor_on_update()
             utils.debug_log("[MOVEMENT_BASE] actor_on_update: re-activating crouch")
             state.restoring_crouch_from_sprint_block = true
             level.press_action(bind_to_dik(key_bindings.kCROUCH))
-            state.restoring_crouch_from_sprint_block = false
+            -- Don't clear flag immediately - let the stance system clear it after handling
         else
             utils.debug_log("[SPRINT DEBUG] NOT restoring crouch - already crouching or wasn't crouched")
         end

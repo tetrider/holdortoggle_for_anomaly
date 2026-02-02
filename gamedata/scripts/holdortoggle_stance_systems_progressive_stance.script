@@ -295,15 +295,21 @@ function on_key_press(key)
 
     -- Crouch key pressed
     if (key == bind_to_dik(key_bindings.kCROUCH)) then
-        -- If prone is active, exit to crouch (but skip if this is a restore from sprint blocking)
-        if prone_active and not state.restoring_crouch_from_sprint_block then
+        -- If this is a programmatic restore from sprint blocking, skip all logic
+        if state.restoring_crouch_from_sprint_block then
+            utils.debug_log("[PROGRESSIVE_STANCE] Skipping programmatic crouch restore from sprint blocking")
+            state.restoring_crouch_from_sprint_block = false
+            return true
+        end
+
+        -- If prone is active, exit to crouch
+        if prone_active then
             deactivate_prone_via_crouch()
             return true
         end
 
         -- If crouch is already active, wait to see if this is a hold (for prone) or a tap (to stand up)
-        -- But skip if this is a crouch restore from sprint blocking
-        if IsMoveState("mcCrouch") and not waiting_for_crouch_decision and not state.restoring_crouch_from_sprint_block then
+        if IsMoveState("mcCrouch") and not waiting_for_crouch_decision then
             utils.debug_log("[PROGRESSIVE_STANCE] Crouch pressed while already crouched - starting hold detection")
             waiting_for_crouch_decision = true
             crouch_hold_started = true
