@@ -52,7 +52,7 @@ function on_mcm_load()
                 {id = "hot_walk", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_walk_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
                 {id = "hot_sprint", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_sprint_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
                 {id = "hot_lean", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_lean_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
-                {id = "autowalkey", type = "key_bind", val = 2, def = DIK_W},
+                {id = "autowalkey", type = "key_bind", val = 2, def = DIK_keys.DIK_W},
                 {id = "modifier", type = ui_mcm.kb_mod_radio, val = 2, def = 3, hint = "mcm_kb_modifier", content = {{0,"mcm_kb_mod_none"}, {1,"mcm_kb_mod_shift"}, {2,"mcm_kb_mod_ctrl"}, {3,"mcm_kb_mod_alt"}}},
                 {id = "mode", type = ui_mcm.kb_mod_radio, val = 2, def = 2, hint = "mcm_kb_mode", content = {{0,"mcm_kb_mode_press"}, {1,"mcm_kb_mode_dtap"}, {2,"mcm_kb_mode_hold"}}},
                 {id = "debug_logging", type = "check", val = 1, def = false, hint = "holdortoggle_debug_logging_hint"},
