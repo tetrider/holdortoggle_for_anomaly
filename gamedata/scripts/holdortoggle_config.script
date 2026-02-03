@@ -164,6 +164,16 @@ function on_option_change()
         utils.debug_log("[CONFIG] Sprint toggle already ON")
     end
 
+     -- Lean - always ensure toggle is ON
+    utils.debug_log("[CONFIG] Processing lean - current game toggle: " .. tostring(state.is_leaning_toggled))
+    if not state.is_leaning_toggled then
+        utils.debug_log("[CONFIG] Enabling lean toggle (always ON for all modes)")
+        get_console():execute("g_lookout_toggle on")
+        ui_options.set("control/general/lookout_toggle", true)
+    else
+        utils.debug_log("[CONFIG] Lean toggle already ON")
+    end
+
     -- Handle stance system selection
     -- Progressive stance always activates (based on stance_system), others require hot_prone > 0
     local should_activate_stance = (stance_system == 2) or (hot_prone and hot_prone > 0)
