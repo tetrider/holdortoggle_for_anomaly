@@ -192,6 +192,13 @@ function on_key_press(key)
 
     -- Crouch key pressed
     if (key == bind_to_dik(key_bindings.kCROUCH)) then
+        -- If this is a programmatic restore from sprint blocking, skip all logic
+        if state.restoring_crouch_from_sprint_block then
+            utils.debug_log("[FLUID_STANCE] Skipping programmatic crouch restore from sprint blocking")
+            state.restoring_crouch_from_sprint_block = false
+            return true
+        end
+
         -- Deactivate prone if active
         if prone_active then
             deactivate_prone_via_crouch()
@@ -208,6 +215,13 @@ function on_key_press(key)
 
     -- Walk key pressed
     if (key == bind_to_dik(key_bindings.kACCEL)) then
+        -- If this is a programmatic restore from sprint blocking, skip all logic
+        if state.restoring_walk_from_sprint_block then
+            utils.debug_log("[FLUID_STANCE] Skipping programmatic walk restore from sprint blocking")
+            state.restoring_walk_from_sprint_block = false
+            return true
+        end
+
         -- Deactivate prone if active
         if prone_active then
             deactivate_prone_via_walk()

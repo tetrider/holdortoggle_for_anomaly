@@ -81,10 +81,8 @@ function shutdown()
     prone_activated_by_this_press = false
     crouch_held_after_prone_exit = false
     -- Cancel any pending TimeEvents
-    RemoveTimeEvent("ensure_crouch_after_prone", "check1")
-    RemoveTimeEvent("ensure_crouch_after_prone", "check2")
-    RemoveTimeEvent("ensure_walk_after_prone", "check1")
-    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+    RemoveTimeEvent("ensure_crouch_after_prone", "restore_stance")
+    RemoveTimeEvent("ensure_walk_after_prone", "restore_stance")
     RemoveTimeEvent("progressive_stance", "check_hold")
     RemoveTimeEvent("progressive_stance", "check_prone_hold")
     RemoveTimeEvent("progressive_stance", "check_standup_hold")
@@ -125,10 +123,8 @@ local function deactivate_prone_via_stance(config)
     prone_exit_time = time_global()
 
     -- Cancel ALL prone exit TimeEvents (both crouch and walk)
-    RemoveTimeEvent("ensure_crouch_after_prone", "check1")
-    RemoveTimeEvent("ensure_crouch_after_prone", "check2")
-    RemoveTimeEvent("ensure_walk_after_prone", "check1")
-    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+    RemoveTimeEvent("ensure_crouch_after_prone", "restore_stance")
+    RemoveTimeEvent("ensure_walk_after_prone", "restore_stance")
 
     -- Force holding state to prevent toggle-off on release (configurable per stance)
     -- Crouch: Force holding to stay in crouch
@@ -155,22 +151,40 @@ local function deactivate_prone_via_stance(config)
         level.press_action(bind_to_dik(config.key_binding_remove))
     end
 
-    -- Create restoration TimeEvents to ensure target stance stays active
-    -- Closures capture config parameters for stance-specific behavior
-    CreateTimeEvent(config.timeevent_prefix, "check1", 0.01, function()
-        if not IsMoveState(config.move_state_keep) then
-            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off at 0.01s, restoring")
-            level.press_action(bind_to_dik(config.key_binding_keep))
-        end
-        return true
-    end)
+    -- Create restoration TimeEvent to ensure target stance stays active
+    -- Uses wait-and-restore pattern: repeats every frame, checking if state gets canceled
+    local repeat_count = 0
+    local MAX_REPEATS = 10  -- Wait up to 10 frames (~167ms at 60fps)
 
-    CreateTimeEvent(config.timeevent_prefix, "check2", 0.05, function()
-        if not IsMoveState(config.move_state_keep) then
-            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off at 0.05s, restoring")
-            level.press_action(bind_to_dik(config.key_binding_keep))
+    CreateTimeEvent(config.timeevent_prefix, "restore_stance", 0, function()
+        repeat_count = repeat_count + 1
+
+        -- Safety: stop after max repeats
+        if repeat_count > MAX_REPEATS then
+            utils.debug_log(config.system_name .. " " .. config.stance_name .. " restoration timeout after " .. repeat_count .. " frames")
+            return true  -- Stop
         end
-        return true
+
+        -- Check if state is still active
+        if IsMoveState(config.move_state_keep) then
+            -- State is still active, keep waiting (might get canceled on next frame)
+            utils.debug_log(config.system_name .. " " .. config.stance_name .. " still active (frame " .. repeat_count .. "), waiting...")
+            return false  -- Repeat on next frame
+        end
+
+        -- State was canceled, check if we should restore it
+        -- Don't restore if movement_base is currently handling sprint block restoration
+        utils.debug_log("[PROGRESSIVE_STANCE] State canceled - restoring_crouch=" .. tostring(state.restoring_crouch_from_sprint_block) .. ", restoring_walk=" .. tostring(state.restoring_walk_from_sprint_block))
+
+        if state.restoring_crouch_from_sprint_block or state.restoring_walk_from_sprint_block then
+            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off after " .. repeat_count .. " frames, skipping (sprint block restoration active)")
+            return true  -- Stop without restoring
+        end
+
+        -- Restore the stance
+        utils.debug_log(config.system_name .. " " .. config.stance_name .. " off after " .. repeat_count .. " frames, restoring")
+        level.press_action(bind_to_dik(config.key_binding_keep))
+        return true  -- Stop
     end)
 
     toggling_prone_programmatically = false
@@ -295,11 +309,11 @@ function on_key_press(key)
 
     -- Crouch key pressed
     if (key == bind_to_dik(key_bindings.kCROUCH)) then
-        -- If this is a programmatic restore from sprint blocking, skip all logic
+        -- If this is a programmatic restore from sprint blocking, skip progressive stance logic
+        -- Game engine will still toggle crouch state regardless of return value
         if state.restoring_crouch_from_sprint_block then
             utils.debug_log("[PROGRESSIVE_STANCE] Skipping programmatic crouch restore from sprint blocking")
-            state.restoring_crouch_from_sprint_block = false
-            return true
+            return true  -- Block other handlers, but game engine still processes the key
         end
 
         -- If prone is active, exit to crouch
@@ -385,6 +399,13 @@ function on_key_press(key)
 
     -- Walk key pressed
     if (key == bind_to_dik(key_bindings.kACCEL)) then
+        -- If this is a programmatic restore from sprint blocking, skip progressive stance logic
+        -- Game engine will still toggle walk state regardless of return value
+        if state.restoring_walk_from_sprint_block then
+            utils.debug_log("[PROGRESSIVE_STANCE] Skipping programmatic walk restore from sprint blocking")
+            return true  -- Block other handlers, but game engine still processes the key
+        end
+
         -- If prone is active, exit to walk
         if prone_active then
             deactivate_prone_via_walk()
@@ -609,15 +630,13 @@ function on_key_release(key)
                     should_toggle_off = true
                     utils.debug_log("[PROGRESSIVE_STANCE] Walk released after exiting prone (Hold mode) - standing up")
                     -- Cancel TimeEvents that might restore walk
-                    RemoveTimeEvent("ensure_walk_after_prone", "check1")
-                    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+                    RemoveTimeEvent("ensure_walk_after_prone", "restore_stance")
                 elseif walk_mode == 2 and walk_held_while_exiting then
                     -- Hold+Toggle mode with hold: stand up on release (Hold behavior)
                     should_toggle_off = true
                     utils.debug_log("[PROGRESSIVE_STANCE] Walk released after exiting prone (Hold+Toggle, held) - standing up")
                     -- Cancel TimeEvents that might restore walk
-                    RemoveTimeEvent("ensure_walk_after_prone", "check1")
-                    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+                    RemoveTimeEvent("ensure_walk_after_prone", "restore_stance")
                 else
                     -- Toggle mode OR Hold+Toggle without hold: keep walk active
                     utils.debug_log("[PROGRESSIVE_STANCE] Walk released after exiting prone (Toggle/tap) - staying in walk")

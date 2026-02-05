@@ -22,8 +22,9 @@ holding_pda = false
 moving = false
 autowalking = false
 
--- Sprint blocking state (prevents progressive stance from triggering prone when restoring crouch)
+-- Sprint blocking state (prevents stance systems from processing programmatic restorations)
 restoring_crouch_from_sprint_block = false
+restoring_walk_from_sprint_block = false
 
 -- Inventory/PDA state
 inventoring = false
