@@ -36,34 +36,211 @@ end
 -- 2. Sprint restoration: Moved from per-frame polling to one-time TimeEvent
 -- 3. IsMoveState caching: Reduced redundant engine calls
 function actor_on_update()
-    -- Early exit when no sprint work needed (99% of frames)
+    -- Sprint activation for autowalking only
+    -- Forward key press handles normal movement
     if not ((hot_sprint == 0 or hot_sprint == 2) and
             (state.holding_sprint or state.sprint_key_down) and
-            (state.moving or state.autowalking)) then
+            state.autowalking) then
         return
     end
 
-    -- Sprint activation for Hold (0) and Hold+Toggle (2) modes
     if (hot_sprint == 0 or hot_sprint == 2) and
        (state.holding_sprint or state.sprint_key_down) and
-       (state.moving or state.autowalking) then
+       state.autowalking then
 
         local is_sprinting = IsMoveState("mcSprint")
         local is_moving_fwd = IsMoveState("mcFwd")
 
         if not is_sprinting then
-            -- Don't activate sprint if it would be blocked (prevents state flickering)
             local would_be_blocked = hot_sprint_cancel and not is_moving_fwd
 
             if hot_sprint == 0 and not would_be_blocked then
+                state.allow_sprint_activation_from_forward = true
                 level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
-                utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold mode)")
+                state.allow_sprint_activation_from_forward = false
+                utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold mode, autowalking)")
             elseif not would_be_blocked and (sprint_key_was_blocked or (hot_sprint_cancel and not is_moving_fwd)) then
+                state.allow_sprint_activation_from_forward = true
                 level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
-                utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold+Toggle, key was/is blocked)")
+                state.allow_sprint_activation_from_forward = false
+                utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold+Toggle, autowalking)")
             end
         end
     end
+end
+
+-- Handle sprint blocking and state restoration when hot_sprint_cancel is enabled
+-- Returns true if sprint was blocked, false otherwise
+local function handle_sprint_blocking()
+    if not hot_sprint_cancel then
+        return false
+    end
+
+    local is_moving_fwd = IsMoveState("mcFwd")
+
+    -- Allow if triggered by forward key press handler
+    if state.allow_sprint_activation_from_forward then
+        return false
+    end
+
+    -- Block if not moving forward
+    if not is_moving_fwd then
+        utils.debug_log("[MOVEMENT_BASE] on_before_key_press: blocking sprint (hot_sprint_cancel enabled, not moving forward)")
+        sprint_key_was_blocked = true
+
+        -- Capture current states for restoration
+        -- Game engine auto-cancels crouch/walk even after our blocking
+        local captured_crouch = IsMoveState("mcCrouch")
+        local captured_walk = IsMoveState("mcAccel")
+
+        utils.debug_log("[MOVEMENT_BASE] on_before_key_press: captured states - crouch=" .. tostring(captured_crouch) .. ", walk=" .. tostring(captured_walk))
+
+        -- Create TimeEvent to restore states
+        if captured_crouch or captured_walk then
+            if restoration_active then
+                utils.debug_log("[MOVEMENT_BASE] on_before_key_press: restoration already active, skipping new TimeEvent")
+
+                -- Re-set flags if cleared by previous restoration
+                if captured_crouch and not state.restoring_crouch_from_sprint_block then
+                    state.restoring_crouch_from_sprint_block = true
+                    utils.debug_log("[SPRINT DEBUG] Re-set restoring_crouch flag (restoration overlap)")
+                end
+                if captured_walk and not state.restoring_walk_from_sprint_block then
+                    state.restoring_walk_from_sprint_block = true
+                    utils.debug_log("[SPRINT DEBUG] Re-set restoring_walk flag (restoration overlap)")
+                end
+
+                -- Remove pending flag clear timer
+                RemoveTimeEvent("holdortoggle", "clear_restoration_flags")
+                utils.debug_log("[SPRINT DEBUG] Removed pending flag clear timer (restoration active)")
+            else
+                restoration_active = true
+                RemoveTimeEvent("holdortoggle", "clear_restoration_flags")
+
+                -- Set flags immediately
+                if captured_crouch then
+                    state.restoring_crouch_from_sprint_block = true
+                    utils.debug_log("[SPRINT DEBUG] Set restoring_crouch flag immediately")
+                end
+                if captured_walk then
+                    state.restoring_walk_from_sprint_block = true
+                    utils.debug_log("[SPRINT DEBUG] Set restoring_walk flag immediately")
+                end
+
+                local block_time = time_global()
+                local repeat_count = 0
+                local MAX_REPEATS = 10
+
+                CreateTimeEvent("holdortoggle", "restore_sprint_block_states", 0, function()
+                    repeat_count = repeat_count + 1
+
+                    -- Safety check
+                    if repeat_count > MAX_REPEATS then
+                        utils.debug_log("[SPRINT DEBUG] Max repeats reached after " .. (time_global() - block_time) .. "ms, stopping")
+                        restoration_active = false
+                        state.restoring_crouch_from_sprint_block = false
+                        state.restoring_walk_from_sprint_block = false
+                        return true
+                    end
+
+                    -- Skip if started moving forward
+                    if IsMoveState("mcFwd") then
+                        utils.debug_log("[SPRINT DEBUG] Moving forward, skipping restoration")
+                        restoration_active = false
+                        state.restoring_crouch_from_sprint_block = false
+                        state.restoring_walk_from_sprint_block = false
+                        return true
+                    end
+
+                    local is_crouching = IsMoveState("mcCrouch")
+                    local is_walking = IsMoveState("mcAccel")
+
+                    -- Wait for engine to cancel states
+                    if (captured_crouch and is_crouching) or (captured_walk and is_walking) then
+                        utils.debug_log("[SPRINT DEBUG] States still active, waiting... (frame " .. repeat_count .. ")")
+                        return false
+                    end
+
+                    -- Restore states (walk first, then crouch)
+                    utils.debug_log("[SPRINT DEBUG] RESTORE after " .. (time_global() - block_time) .. "ms (" .. repeat_count .. " frames)")
+
+                    if captured_walk and not is_walking then
+                        utils.debug_log("[SPRINT DEBUG] RESTORING WALK")
+                        level.press_action(bind_to_dik(key_bindings.kACCEL))
+                    end
+
+                    if captured_crouch and not is_crouching then
+                        utils.debug_log("[SPRINT DEBUG] RESTORING CROUCH")
+                        level.press_action(bind_to_dik(key_bindings.kCROUCH))
+                    end
+
+                    -- Keep flags for 0.1s
+                    CreateTimeEvent("holdortoggle", "clear_restoration_flags", 0.1, function()
+                        state.restoring_crouch_from_sprint_block = false
+                        state.restoring_walk_from_sprint_block = false
+                        utils.debug_log("[SPRINT DEBUG] Cleared restoration flags")
+                        return true
+                    end)
+
+                    restoration_active = false
+                    return true
+                end)
+            end
+        end
+
+        return true  -- Sprint was blocked
+    end
+
+    return false  -- Sprint not blocked
+end
+
+-- Activate sprint when forward is pressed while holding sprint
+-- Uses retry mechanism to wait for forward key to be processed by engine
+local function try_activate_sprint_on_forward()
+    local attempt_count = 0
+    local MAX_ATTEMPTS = 5  -- Try for up to 5 frames (~83ms at 60fps)
+
+    CreateTimeEvent("holdortoggle", "activate_sprint_on_forward", 0, function()
+        attempt_count = attempt_count + 1
+
+        -- Stop if max attempts reached, sprint no longer held, or already sprinting
+        if attempt_count >= MAX_ATTEMPTS or
+           not (state.holding_sprint or state.sprint_key_down) or
+           IsMoveState("mcSprint") then
+            return true
+        end
+
+        -- Activate sprint once mcFwd is true
+        if IsMoveState("mcFwd") then
+            local ads_is_active = axr_main.weapon_is_zoomed
+
+            if hot_sprint == 0 or sprint_key_was_blocked then
+                -- Set flags for sprint activation and preservation (if ADS active)
+                state.allow_sprint_activation_from_forward = true
+                state.preserve_sprint_flags = ads_is_active
+
+                level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                state.allow_sprint_activation_from_forward = false
+
+                -- If ADS is active, press sprint again after canceling ADS
+                if ads_is_active then
+                    CreateTimeEvent("holdortoggle", "activate_sprint_after_ads_cancel", 0.05, function()
+                        if (state.holding_sprint or state.sprint_key_down) and not IsMoveState("mcSprint") then
+                            state.allow_sprint_activation_from_forward = true
+                            state.preserve_sprint_flags = false
+                            level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                            state.allow_sprint_activation_from_forward = false
+                        end
+                        return true
+                    end)
+                end
+            end
+
+            return true  -- Stop after activation
+        else
+            return false  -- Retry next frame
+        end
+    end)
 end
 
 function on_before_key_press(dik, bind, dis, flags)
@@ -78,133 +255,9 @@ function on_before_key_press(dik, bind, dis, flags)
             utils.debug_log("[MOVEMENT_BASE] on_before_key_press: tracking sprint press (Hold+Toggle mode)")
         end
 
-        -- Block sprint if hot_sprint_cancel is enabled AND not moving forward
-        -- This prevents the game from entering sprint mode (which auto-cancels actions)
-        local is_moving_fwd = IsMoveState("mcFwd")
-        utils.debug_log("[MOVEMENT_BASE] on_before_key_press: sprint block check - hot_sprint_cancel=" .. tostring(hot_sprint_cancel) .. ", is_moving_fwd=" .. tostring(is_moving_fwd) .. ", sprint_key_was_blocked=" .. tostring(sprint_key_was_blocked))
-
-        if hot_sprint_cancel and not is_moving_fwd then
-            utils.debug_log("[MOVEMENT_BASE] on_before_key_press: blocking sprint (hot_sprint_cancel enabled, not moving forward)")
-
-            -- Set flag to indicate sprint is blocked
-            sprint_key_was_blocked = true
-
-            -- CRITICAL FIX: The game engine auto-cancels crouch and walk when sprint is pressed,
-            -- even AFTER our blocking code runs. Capture current states for restoration via TimeEvent.
-            local captured_crouch = IsMoveState("mcCrouch")
-            local captured_walk = IsMoveState("mcAccel")
-
-            utils.debug_log("[MOVEMENT_BASE] on_before_key_press: captured states - crouch=" .. tostring(captured_crouch) .. ", walk=" .. tostring(captured_walk))
-
-            -- ALWAYS create TimeEvent to restore states, even on repeated presses
-            -- The game engine cancels crouch/walk on EVERY blocked press, not just the first
-            if captured_crouch or captured_walk then
-                -- Don't create a new TimeEvent if one is already running
-                -- This prevents race conditions when double-tapping sprint
-                if restoration_active then
-                    utils.debug_log("[MOVEMENT_BASE] on_before_key_press: restoration already active, skipping new TimeEvent")
-
-                    -- CRITICAL: Re-set flags if they were cleared by a previous restoration
-                    -- This prevents prone exit when spamming sprint with overlapping restorations
-                    if captured_crouch and not state.restoring_crouch_from_sprint_block then
-                        state.restoring_crouch_from_sprint_block = true
-                        utils.debug_log("[SPRINT DEBUG] Re-set restoring_crouch flag (restoration overlap)")
-                    end
-                    if captured_walk and not state.restoring_walk_from_sprint_block then
-                        state.restoring_walk_from_sprint_block = true
-                        utils.debug_log("[SPRINT DEBUG] Re-set restoring_walk flag (restoration overlap)")
-                    end
-
-                    -- CRITICAL: Remove any pending flag clear timer
-                    -- The active restoration will schedule its own timer when it completes
-                    -- This prevents the timer from firing before the restoration finishes
-                    RemoveTimeEvent("holdortoggle", "clear_restoration_flags")
-                    utils.debug_log("[SPRINT DEBUG] Removed pending flag clear timer (restoration active)")
-                else
-                    restoration_active = true
-
-                    -- CRITICAL: Remove any pending flag clear timer from previous restorations
-                    -- This prevents old timers from clearing the flags we're about to set
-                    RemoveTimeEvent("holdortoggle", "clear_restoration_flags")
-
-                    -- CRITICAL: Set flags IMMEDIATELY before starting restoration
-                    -- This ensures progressive stance can detect and skip the restoration
-                    if captured_crouch then
-                        state.restoring_crouch_from_sprint_block = true
-                        utils.debug_log("[SPRINT DEBUG] Set restoring_crouch flag immediately")
-                    end
-                    if captured_walk then
-                        state.restoring_walk_from_sprint_block = true
-                        utils.debug_log("[SPRINT DEBUG] Set restoring_walk flag immediately")
-                    end
-
-                    local block_time = time_global()
-                    local repeat_count = 0
-                    local MAX_REPEATS = 10  -- Safety limit (10 frames = ~167ms at 60fps)
-
-                    CreateTimeEvent("holdortoggle", "restore_sprint_block_states", 0, function()
-                        repeat_count = repeat_count + 1
-
-                        -- Safety check: stop after max repeats
-                        if repeat_count > MAX_REPEATS then
-                            utils.debug_log("[SPRINT DEBUG] Max repeats reached after " .. (time_global() - block_time) .. "ms, stopping")
-                            restoration_active = false
-                            -- Clear flags on failure
-                            state.restoring_crouch_from_sprint_block = false
-                            state.restoring_walk_from_sprint_block = false
-                            return true  -- Stop
-                        end
-
-                        -- Check if user started moving forward
-                        if IsMoveState("mcFwd") then
-                            utils.debug_log("[SPRINT DEBUG] Moving forward, skipping restoration")
-                            restoration_active = false
-                            -- Clear flags when skipping
-                            state.restoring_crouch_from_sprint_block = false
-                            state.restoring_walk_from_sprint_block = false
-                            return true  -- Stop
-                        end
-
-                        local is_crouching = IsMoveState("mcCrouch")
-                        local is_walking = IsMoveState("mcAccel")
-
-                        -- Wait for engine to cancel the states before restoring
-                        if (captured_crouch and is_crouching) or (captured_walk and is_walking) then
-                            utils.debug_log("[SPRINT DEBUG] States still active, waiting... (frame " .. repeat_count .. ")")
-                            return false  -- Repeat on next frame
-                        end
-
-                        -- States have been canceled by engine, now restore them
-                        utils.debug_log("[SPRINT DEBUG] RESTORE after " .. (time_global() - block_time) .. "ms (" .. repeat_count .. " frames)")
-
-                        -- CRITICAL: When prone (both states need restoration), restore walk FIRST, then crouch
-                        -- This prevents progressive stance from interpreting crouch press as "exit prone"
-                        if captured_walk and not is_walking then
-                            utils.debug_log("[SPRINT DEBUG] RESTORING WALK")
-                            level.press_action(bind_to_dik(key_bindings.kACCEL))
-                        end
-
-                        if captured_crouch and not is_crouching then
-                            utils.debug_log("[SPRINT DEBUG] RESTORING CROUCH")
-                            level.press_action(bind_to_dik(key_bindings.kCROUCH))
-                        end
-
-                        -- Keep flags true for 0.1s to prevent progressive stance's TimeEvents from interfering
-                        -- Progressive stance has TimeEvents at 0.01s and 0.05s that need to see these flags
-                        CreateTimeEvent("holdortoggle", "clear_restoration_flags", 0.1, function()
-                            state.restoring_crouch_from_sprint_block = false
-                            state.restoring_walk_from_sprint_block = false
-                            utils.debug_log("[SPRINT DEBUG] Cleared restoration flags")
-                            return true
-                        end)
-
-                        restoration_active = false
-                        return true  -- Stop
-                    end)
-                end
-            end
-
-            return true  -- Always block the key when condition is true
+        -- Handle sprint blocking and state restoration
+        if handle_sprint_blocking() then
+            return true  -- Block sprint from reaching game
         end
 
         -- For Toggle and Hold+Toggle modes, let the key through normally
@@ -261,6 +314,14 @@ function on_key_press(key)
     -- Dirty move check
     if (key == bind_to_dik(key_bindings.kFWD)) or (key == bind_to_dik(key_bindings.kBACK)) then
         state.moving = true
+
+        -- Try to activate sprint on forward key press (if holding sprint)
+        if key == bind_to_dik(key_bindings.kFWD) and
+           (hot_sprint == 0 or hot_sprint == 2) and
+           (state.holding_sprint or state.sprint_key_down) and
+           not IsMoveState("mcSprint") then
+            try_activate_sprint_on_forward()
+        end
     end
 end
 
@@ -348,8 +409,13 @@ function on_key_release(key)
             end
             -- else: tapped and key wasn't blocked, game already handled toggle
         end
-        state.holding_sprint = false
-        state.sprint_key_down = false
+        -- Preserve sprint flags if ADS re-activation is pending
+        if not state.preserve_sprint_flags then
+            state.holding_sprint = false
+            state.sprint_key_down = false
+        else
+            state.preserve_sprint_flags = false
+        end
 
         -- Only call holdfix if sprint wasn't blocked (optional optimization)
         if not sprint_key_was_blocked then
