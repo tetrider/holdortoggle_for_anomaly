@@ -57,13 +57,6 @@ function actor_on_first_update()
     utils.debug_log("[CORE] actor_on_first_update completed")
 end
 
--- Update handler
-function actor_on_update()
-    movement_base.actor_on_update()
-    lean.actor_on_update()
-    autowalk.actor_on_update()
-end
-
 -- Before key press handler
 function on_before_key_press(dik, bind, dis, flags)
     -- Inventory needs to block first
@@ -155,7 +148,6 @@ function on_game_start()
 
     RegisterScriptCallback("on_option_change", on_option_change)
     RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
-    RegisterScriptCallback("actor_on_update", actor_on_update)
     RegisterScriptCallback("on_key_press", on_key_press)
     RegisterScriptCallback("on_key_hold", on_key_hold)
     RegisterScriptCallback("on_key_release", on_key_release)

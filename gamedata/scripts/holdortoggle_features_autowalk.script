@@ -2,6 +2,7 @@
 -- Auto-walk feature
 
 local state = holdortoggle_state
+local movement_base = holdortoggle_movement_base
 
 -- MCM options
 local autowalkey = DIK_keys.DIK_W
@@ -13,12 +14,6 @@ function update_options()
         autowalkey = ui_mcm.get("mcm/holdortoggle/main/autowalkey")
         modifier = ui_mcm.get("mcm/holdortoggle/main/modifier")
         mode = ui_mcm.get("mcm/holdortoggle/main/mode")
-    end
-end
-
-function actor_on_update()
-    if state.autowalking then
-        level.hold_action(bind_to_dik(key_bindings.kFWD))
     end
 end
 
@@ -55,4 +50,24 @@ end
 
 function toggle_autowalk()
     state.autowalking = not state.autowalking
+
+    if state.autowalking then
+        -- Create recurring event (delay=0 means it runs every frame until stopped)
+        CreateTimeEvent("holdortoggle_autowalk", "hold_forward", 0, function()
+            if not state.autowalking then
+                return true  -- Stop event when autowalking disabled
+            end
+            level.hold_action(bind_to_dik(key_bindings.kFWD))
+            return false  -- Keep event running
+        end)
+
+        -- Start sprint monitoring for autowalk
+        movement_base.start_autowalk_sprint_monitor()
+    else
+        -- Explicitly stop event when autowalking is disabled
+        RemoveTimeEvent("holdortoggle_autowalk", "hold_forward")
+
+        -- Stop sprint monitoring for autowalk
+        movement_base.stop_autowalk_sprint_monitor()
+    end
 end

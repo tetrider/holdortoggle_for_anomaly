@@ -18,10 +18,6 @@ function update_options()
     end
 end
 
-function actor_on_update()
-    -- No deferred operations needed - opposite lean cancel is handled in on_key_press
-end
-
 function on_before_key_press(dik, bind, dis, flags)
     -- No blocking logic here - we handle opposite lean cancel in on_key_press
     return false

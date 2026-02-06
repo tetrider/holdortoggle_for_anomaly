@@ -31,42 +31,42 @@ function update_options()
     end
 end
 
--- OPTIMIZATION NOTES:
--- 1. Early exit: ~95% reduction in per-frame overhead (most frames do no work)
--- 2. Sprint restoration: Moved from per-frame polling to one-time TimeEvent
--- 3. IsMoveState caching: Reduced redundant engine calls
-function actor_on_update()
-    -- Sprint activation for autowalking only
-    -- Forward key press handles normal movement
-    if not ((hot_sprint == 0 or hot_sprint == 2) and
-            (state.holding_sprint or state.sprint_key_down) and
-            state.autowalking) then
-        return
-    end
+-- Start monitoring sprint activation during autowalk
+function start_autowalk_sprint_monitor()
+    CreateTimeEvent("holdortoggle_movement", "autowalk_sprint_monitor", 0, function()
+        if not state.autowalking then
+            return true  -- Stop monitoring when autowalking ends
+        end
 
-    if (hot_sprint == 0 or hot_sprint == 2) and
-       (state.holding_sprint or state.sprint_key_down) and
-       state.autowalking then
+        -- Sprint activation for autowalking only
+        if (hot_sprint == 0 or hot_sprint == 2) and
+           (state.holding_sprint or state.sprint_key_down) then
 
-        local is_sprinting = IsMoveState("mcSprint")
-        local is_moving_fwd = IsMoveState("mcFwd")
+            local is_sprinting = IsMoveState("mcSprint")
+            local is_moving_fwd = IsMoveState("mcFwd")
 
-        if not is_sprinting then
-            local would_be_blocked = hot_sprint_cancel and not is_moving_fwd
+            if not is_sprinting then
+                local would_be_blocked = hot_sprint_cancel and not is_moving_fwd
 
-            if hot_sprint == 0 and not would_be_blocked then
-                state.allow_sprint_activation_from_forward = true
-                level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
-                state.allow_sprint_activation_from_forward = false
-                utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold mode, autowalking)")
-            elseif not would_be_blocked and (sprint_key_was_blocked or (hot_sprint_cancel and not is_moving_fwd)) then
-                state.allow_sprint_activation_from_forward = true
-                level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
-                state.allow_sprint_activation_from_forward = false
-                utils.debug_log("[MOVEMENT_BASE] actor_on_update: activating sprint (Hold+Toggle, autowalking)")
+                if hot_sprint == 0 and not would_be_blocked then
+                    state.allow_sprint_activation_from_forward = true
+                    level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                    state.allow_sprint_activation_from_forward = false
+                elseif not would_be_blocked and sprint_key_was_blocked then
+                    state.allow_sprint_activation_from_forward = true
+                    level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
+                    state.allow_sprint_activation_from_forward = false
+                end
             end
         end
-    end
+
+        return false  -- Keep monitoring
+    end)
+end
+
+-- Stop monitoring sprint activation during autowalk
+function stop_autowalk_sprint_monitor()
+    RemoveTimeEvent("holdortoggle_movement", "autowalk_sprint_monitor")
 end
 
 -- Handle sprint blocking and state restoration when hot_sprint_cancel is enabled
