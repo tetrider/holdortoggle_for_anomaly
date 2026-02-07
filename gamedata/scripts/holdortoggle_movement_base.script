@@ -95,6 +95,12 @@ local function handle_sprint_blocking()
 
         utils.debug_log("[MOVEMENT_BASE] on_before_key_press: captured states - crouch=" .. tostring(captured_crouch) .. ", walk=" .. tostring(captured_walk))
 
+        -- Skip restoration if prone restoration is already active
+        if state.prone_restoration_active then
+            utils.debug_log("[MOVEMENT_BASE] Prone restoration active, skipping sprint blocking restoration")
+            return true  -- Sprint was blocked
+        end
+
         -- Create TimeEvent to restore states
         if captured_crouch or captured_walk then
             if restoration_active then

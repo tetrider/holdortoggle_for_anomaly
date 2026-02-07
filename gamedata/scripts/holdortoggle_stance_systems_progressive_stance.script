@@ -365,9 +365,14 @@ function on_key_press(key)
             return true
         end
 
-        -- If walk is active, switch to crouch
-        if IsMoveState("mcAccel") then
+        -- If walk is active, switch to crouch (skip if this is programmatic cancellation to avoid recursion)
+        if not state.canceling_crouch and IsMoveState("mcAccel") then
+            state.canceling_walk = true
+            utils.debug_log("[PROGRESSIVE_STANCE] Canceling walk (crouch pressed)")
             level.press_action(bind_to_dik(key_bindings.kACCEL))
+        elseif state.canceling_crouch then
+            utils.debug_log("[PROGRESSIVE_STANCE] Skipping opposite stance cancellation (programmatic crouch cancellation)")
+            state.canceling_crouch = false
         end
 
         -- Mark that we started a crouch press (for hold detection)
@@ -412,19 +417,24 @@ function on_key_press(key)
             return true
         end
 
-        -- Cancel any pending hold-to-prone transition
-        if crouch_hold_started and not crouch_hold_transitioned then
+        -- Cancel any pending hold-to-prone transition (skip if programmatic cancellation)
+        if not state.canceling_walk and crouch_hold_started and not crouch_hold_transitioned then
             utils.debug_log("[PROGRESSIVE_STANCE] Walk pressed while holding crouch - canceling hold-to-prone transition")
             crouch_hold_started = false
             crouch_hold_transitioned = false
             RemoveTimeEvent("progressive_stance", "check_prone_hold")
         end
 
-        -- If crouch is active, switch to walk (turn off crouch)
-        if IsMoveState("mcCrouch") then
+        -- If crouch is active, switch to walk (skip if this is programmatic cancellation to avoid recursion)
+        if not state.canceling_walk and IsMoveState("mcCrouch") then
+            state.canceling_crouch = true
+            utils.debug_log("[PROGRESSIVE_STANCE] Canceling crouch (walk pressed)")
             toggling_crouch_programmatically = true
             level.press_action(bind_to_dik(key_bindings.kCROUCH))
             toggling_crouch_programmatically = false
+        elseif state.canceling_walk then
+            utils.debug_log("[PROGRESSIVE_STANCE] Skipping opposite stance cancellation (programmatic walk cancellation)")
+            state.canceling_walk = false
         end
 
         -- Track walk press for Hold mode - mark as holding immediately

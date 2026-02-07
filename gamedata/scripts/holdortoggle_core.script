@@ -5,6 +5,7 @@
 local state = holdortoggle_state
 local utils = holdortoggle_utils
 local config = holdortoggle_config
+local stance_utils = holdortoggle_stance_utils
 local movement_base = holdortoggle_movement_base
 local lean = holdortoggle_features_lean
 local inventory = holdortoggle_features_inventory
@@ -84,16 +85,53 @@ function on_before_key_press(dik, bind, dis, flags)
     return false
 end
 
+-- Recursion detection counter
+local recursion_counter = 0
+local last_recursion_key = nil
+
 -- Key press handler
 function on_key_press(key)
+    -- Entry point logging with recursion detection
+    recursion_counter = recursion_counter + 1
+
+    local key_name = "UNKNOWN"
+    if key == bind_to_dik(key_bindings.kCROUCH) then
+        key_name = "CROUCH"
+    elseif key == bind_to_dik(key_bindings.kACCEL) then
+        key_name = "WALK"
+    elseif key == bind_to_dik(stance_utils.get_sprint_key()) then
+        key_name = "SPRINT"
+    elseif key == bind_to_dik(key_bindings.kWPN_RELOAD) then
+        key_name = "RELOAD"
+    end
+
+    utils.debug_log(string.format("[CORE ENTRY] key_press #%d: key=%s(%d) sprint_block_crouch=%s sprint_block_walk=%s prone_crouch=%s prone_walk=%s",
+        recursion_counter, key_name, key,
+        tostring(state.restoring_crouch_from_sprint_block),
+        tostring(state.restoring_walk_from_sprint_block),
+        tostring(state.restoring_crouch_from_prone_exit),
+        tostring(state.restoring_walk_from_prone_exit)))
+
+    -- Detect recursion loop (same key called many times in rapid succession)
+    if recursion_counter > 100 then
+        utils.debug_log(string.format("[CORE RECURSION DETECTED] Counter at %d, last_key=%s, current_key=%s - BLOCKING TO PREVENT HANG",
+            recursion_counter, tostring(last_recursion_key), key_name))
+        recursion_counter = 0
+        return
+    end
+
+    last_recursion_key = key
+
     -- Check QAW integration first (for closing with reload/ammo keys)
     if qaw.on_key_press(key) then
+        recursion_counter = recursion_counter - 1
         return  -- QAW handled it
     end
 
     -- Try stance system first (if active)
     if state.active_stance_system then
         if state.active_stance_system.on_key_press(key) then
+            recursion_counter = recursion_counter - 1
             return  -- Stance system handled it
         end
     end
@@ -103,6 +141,8 @@ function on_key_press(key)
     lean.on_key_press(key)
     inventory.on_key_press(key)
     autowalk.on_key_press(key)
+
+    recursion_counter = recursion_counter - 1
 end
 
 -- Key hold handler

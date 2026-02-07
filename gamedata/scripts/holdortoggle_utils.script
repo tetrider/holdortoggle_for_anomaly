@@ -3,16 +3,38 @@
 
 -- Debug logging
 local debug_logging_enabled = false
+local debug_log_file = nil
+local debug_log_path = "holdortoggle_debug.log"
 
 function update_debug_logging()
     if ui_mcm then
         debug_logging_enabled = ui_mcm.get("mcm/holdortoggle/main/debug_logging")
+
+        -- Open debug log file if logging is enabled
+        if debug_logging_enabled and not debug_log_file then
+            debug_log_file = io.open(debug_log_path, "a")
+            if debug_log_file then
+                debug_log_file:write("\n\n=== New Session: " .. os.date("%Y-%m-%d %H:%M:%S") .. " ===\n")
+                debug_log_file:flush()
+            end
+        elseif not debug_logging_enabled and debug_log_file then
+            debug_log_file:close()
+            debug_log_file = nil
+        end
     end
 end
 
 function debug_log(msg)
     if debug_logging_enabled then
+        -- Write to engine log
         log(msg)
+
+        -- Also write to dedicated debug file with immediate flush
+        if debug_log_file then
+            local timestamp = string.format("[%.3f] ", time_global() / 1000.0)
+            debug_log_file:write(timestamp .. msg .. "\n")
+            debug_log_file:flush()  -- Force immediate write to disk
+        end
     end
 end
 

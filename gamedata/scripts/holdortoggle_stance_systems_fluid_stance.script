@@ -17,6 +17,7 @@ local toggling_prone_programmatically = false
 local prone_activated_by_this_press = false  -- Track if prone was activated by current prone key press
 local walk_held_while_exiting = false  -- Track if walk key was held while exiting prone (for Hold+Toggle mode)
 local crouch_held_while_exiting = false  -- Track if crouch key was held while exiting prone (for Hold+Toggle mode)
+local prone_toggle_frame_count = 0  -- Frame counter for prone toggle flag persistence
 
 -- Keybind and mode
 local pronekey = DIK_keys.DIK_Z
@@ -41,10 +42,8 @@ function shutdown()
     walk_held_while_exiting = false
     crouch_held_while_exiting = false
     -- Cancel any pending TimeEvents
-    RemoveTimeEvent("ensure_crouch_after_prone", "check1")
-    RemoveTimeEvent("ensure_crouch_after_prone", "check2")
-    RemoveTimeEvent("ensure_walk_after_prone", "check1")
-    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+    RemoveTimeEvent("ensure_crouch_after_prone", "restore_stance")
+    RemoveTimeEvent("ensure_walk_after_prone", "restore_stance")
 end
 
 function is_stance_active()
@@ -87,10 +86,8 @@ local function deactivate_prone_via_stance(config)
     prone_exit_time = time_global()
 
     -- Cancel ALL prone exit TimeEvents (both crouch and walk)
-    RemoveTimeEvent("ensure_crouch_after_prone", "check1")
-    RemoveTimeEvent("ensure_crouch_after_prone", "check2")
-    RemoveTimeEvent("ensure_walk_after_prone", "check1")
-    RemoveTimeEvent("ensure_walk_after_prone", "check2")
+    RemoveTimeEvent("ensure_crouch_after_prone", "restore_stance")
+    RemoveTimeEvent("ensure_walk_after_prone", "restore_stance")
 
     -- Force holding state to prevent toggle-off on release
     state[config.holding_state_key] = true
@@ -99,33 +96,80 @@ local function deactivate_prone_via_stance(config)
     -- Note: holding_prone_var is passed as a boolean VALUE, not a reference
     local should_set_manual_exit = config.holding_prone_var
 
-    -- Set programmatic flag to prevent recursion
+    -- Set programmatic flags to prevent recursion and coordinate with sprint blocking
     toggling_prone_programmatically = true
+    state.prone_restoration_active = true
 
     -- Turn off opposite stance (keep target stance active)
     if IsMoveState(config.move_state_remove) then
         level.press_action(bind_to_dik(config.key_binding_remove))
     end
 
-    -- Create restoration TimeEvents to ensure target stance stays active
-    -- Closures capture config parameters for stance-specific behavior
-    CreateTimeEvent(config.timeevent_prefix, "check1", 0.01, function()
-        if not IsMoveState(config.move_state_keep) then
-            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off at 0.01s, restoring")
-            level.press_action(bind_to_dik(config.key_binding_keep))
+    -- Create restoration TimeEvent to ensure target stance stays active
+    -- Wait for engine to process prone toggle, then restore once if needed
+    local check_count = 0
+    local restored = false
+    local MAX_FRAMES = 10  -- Safety limit
+
+    CreateTimeEvent(config.timeevent_prefix, "restore_stance", 0, function()
+        check_count = check_count + 1
+
+        -- Safety check - stop after max frames
+        if check_count > MAX_FRAMES then
+            utils.debug_log(config.system_name .. " Restoration timeout after " .. MAX_FRAMES .. " frames")
+            toggling_prone_programmatically = false
+            state.prone_restoration_active = false
+            -- Clear prone restoration flags we may have set
+            if config.key_binding_keep == key_bindings.kCROUCH then
+                state.restoring_crouch_from_prone_exit = false
+            elseif config.key_binding_keep == key_bindings.kACCEL then
+                state.restoring_walk_from_prone_exit = false
+            end
+            return true
         end
+
+        -- Wait 2-3 frames for prone animation to process
+        if check_count <= 3 then
+            return false  -- Keep waiting
+        end
+
+        -- Skip restoration if sprint blocking restoration is already handling it
+        if (config.key_binding_keep == key_bindings.kCROUCH and state.restoring_crouch_from_sprint_block) or
+           (config.key_binding_keep == key_bindings.kACCEL and state.restoring_walk_from_sprint_block) then
+            utils.debug_log(config.system_name .. " Sprint blocking restoration active, skipping prone restoration")
+            toggling_prone_programmatically = false
+            state.prone_restoration_active = false
+            return true
+        end
+
+        -- After waiting, restore once if stance is off (only if not already restored)
+        if not restored and not IsMoveState(config.move_state_keep) then
+            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off after prone exit, restoring once")
+            -- CRITICAL: Set prone restoration flags IMMEDIATELY before press to prevent recursion
+            if config.key_binding_keep == key_bindings.kCROUCH then
+                state.restoring_crouch_from_prone_exit = true
+                utils.debug_log("[RECURSION GUARD] Set prone restoring_crouch flag before press")
+            elseif config.key_binding_keep == key_bindings.kACCEL then
+                state.restoring_walk_from_prone_exit = true
+                utils.debug_log("[RECURSION GUARD] Set prone restoring_walk flag before press")
+            end
+            level.press_action(bind_to_dik(config.key_binding_keep))
+            restored = true
+            return false  -- Wait one more frame to verify
+        end
+
+        -- Done - either stance is already active or we've restored it
+        toggling_prone_programmatically = false
+        state.prone_restoration_active = false
+        -- Clear prone restoration flags we set for recursion protection
+        if config.key_binding_keep == key_bindings.kCROUCH then
+            state.restoring_crouch_from_prone_exit = false
+        elseif config.key_binding_keep == key_bindings.kACCEL then
+            state.restoring_walk_from_prone_exit = false
+        end
+        utils.debug_log(config.system_name .. " Restoration complete, flags cleared")
         return true
     end)
-
-    CreateTimeEvent(config.timeevent_prefix, "check2", 0.05, function()
-        if not IsMoveState(config.move_state_keep) then
-            utils.debug_log(config.system_name .. " " .. config.stance_name .. " off at 0.05s, restoring")
-            level.press_action(bind_to_dik(config.key_binding_keep))
-        end
-        return true
-    end)
-
-    toggling_prone_programmatically = false
 
     utils.debug_log(config.system_name .. " " .. config.stance_name .. " exit complete, " .. config.move_state_keep .. "=" .. tostring(IsMoveState(config.move_state_keep)) .. ", " .. config.holding_state_key .. "=" .. tostring(state[config.holding_state_key]))
 
@@ -185,18 +229,23 @@ local function deactivate_prone_via_walk()
 end
 
 function on_key_press(key)
-    -- Don't process crouch/walk if we're programmatically toggling prone
-    if toggling_prone_programmatically and (key == bind_to_dik(key_bindings.kCROUCH) or key == bind_to_dik(key_bindings.kACCEL)) then
-        return true
+    -- Don't process any stance keys if we're programmatically toggling prone
+    if toggling_prone_programmatically then
+        if (key == bind_to_dik(key_bindings.kCROUCH)) or
+           (key == bind_to_dik(key_bindings.kACCEL)) or
+           (key == pronekey) or
+           (key == bind_to_dik(stance_utils.get_sprint_key())) then
+            return true  -- Block all stance keys during prone toggle
+        end
     end
 
     -- Crouch key pressed
     if (key == bind_to_dik(key_bindings.kCROUCH)) then
-        -- If this is a programmatic restore from sprint blocking, skip all logic
-        if state.restoring_crouch_from_sprint_block then
-            utils.debug_log("[FLUID_STANCE] Skipping programmatic crouch restore from sprint blocking")
-            state.restoring_crouch_from_sprint_block = false
-            return true
+        -- If this is a programmatic restore, skip fluid stance logic
+        -- Game engine will still toggle crouch state regardless of return value
+        if state.restoring_crouch_from_sprint_block or state.restoring_crouch_from_prone_exit then
+            utils.debug_log("[FLUID_STANCE] Skipping programmatic crouch restore")
+            return true  -- Block other handlers, but game engine still processes the key
         end
 
         -- Deactivate prone if active
@@ -205,9 +254,15 @@ function on_key_press(key)
             -- Return early - don't let the crouch key press continue
             return true
         end
-        -- If walk is active, switch to crouch
-        if IsMoveState("mcAccel") then
+
+        -- If walk is active, switch to crouch (skip if this is programmatic cancellation to avoid recursion)
+        if not state.canceling_crouch and IsMoveState("mcAccel") then
+            state.canceling_walk = true
+            utils.debug_log("[FLUID_STANCE] Canceling walk (crouch pressed)")
             level.press_action(bind_to_dik(key_bindings.kACCEL))
+        elseif state.canceling_crouch then
+            utils.debug_log("[FLUID_STANCE] Skipping opposite stance cancellation (programmatic crouch cancellation)")
+            state.canceling_crouch = false
         end
         -- Let crouch key press continue normally
         return false
@@ -215,11 +270,11 @@ function on_key_press(key)
 
     -- Walk key pressed
     if (key == bind_to_dik(key_bindings.kACCEL)) then
-        -- If this is a programmatic restore from sprint blocking, skip all logic
-        if state.restoring_walk_from_sprint_block then
-            utils.debug_log("[FLUID_STANCE] Skipping programmatic walk restore from sprint blocking")
-            state.restoring_walk_from_sprint_block = false
-            return true
+        -- If this is a programmatic restore, skip fluid stance logic
+        -- Game engine will still toggle walk state regardless of return value
+        if state.restoring_walk_from_sprint_block or state.restoring_walk_from_prone_exit then
+            utils.debug_log("[FLUID_STANCE] Skipping programmatic walk restore")
+            return true  -- Block other handlers, but game engine still processes the key
         end
 
         -- Deactivate prone if active
@@ -228,9 +283,15 @@ function on_key_press(key)
             -- Return early - don't let the walk key press continue
             return true
         end
-        -- If crouch is active, switch to walk
-        if IsMoveState("mcCrouch") then
+
+        -- If crouch is active, switch to walk (skip if this is programmatic cancellation to avoid recursion)
+        if not state.canceling_walk and IsMoveState("mcCrouch") then
+            state.canceling_crouch = true
+            utils.debug_log("[FLUID_STANCE] Canceling crouch (walk pressed)")
             level.press_action(bind_to_dik(key_bindings.kCROUCH))
+        elseif state.canceling_walk then
+            utils.debug_log("[FLUID_STANCE] Skipping opposite stance cancellation (programmatic walk cancellation)")
+            state.canceling_walk = false
         end
         -- Let walk key press continue normally
         return false
@@ -539,6 +600,17 @@ function toggle_prone()
         return
     end
 
-    -- Clear the flag after toggling is complete
-    toggling_prone_programmatically = false
+    -- Keep flag set for a few frames to prevent immediate re-toggling
+    -- This prevents held crouch/walk keys from immediately exiting prone
+    -- Remove any existing event first to prevent duplicates
+    RemoveTimeEvent("holdortoggle_prone_toggle", "clear_prone_flag")
+    prone_toggle_frame_count = 0
+    CreateTimeEvent("holdortoggle_prone_toggle", "clear_prone_flag", 0, function()
+        prone_toggle_frame_count = prone_toggle_frame_count + 1
+        if prone_toggle_frame_count >= 5 then
+            toggling_prone_programmatically = false
+            return true  -- Stop event
+        end
+        return false  -- Keep event running
+    end)
 end
