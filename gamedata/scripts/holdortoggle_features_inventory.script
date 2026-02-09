@@ -253,6 +253,13 @@ function on_key_release(key)
                     -- Clear bolt/knife references after restoration (done inside time event)
                     pda_bolt_object = nil
                     pda_knife_object = nil
+                else
+                    -- No detector was active, just restore the previous slot
+                    -- This handles binoculars, rifles, and other items
+                    if pda_last_slot ~= 0 and pda_last_slot ~= 8 then
+                        utils.debug_log("[HOT_PDA] No detector - restoring slot " .. tostring(pda_last_slot))
+                        db.actor:activate_slot(pda_last_slot)
+                    end
                 end
 
                 -- Hide PDA dialog if in 2D mode
