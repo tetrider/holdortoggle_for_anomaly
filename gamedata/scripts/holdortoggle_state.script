@@ -34,6 +34,14 @@ restoring_walk_from_prone_exit = false
 canceling_crouch = false
 canceling_walk = false
 
+-- Same-frame prone fix flag
+fixing_same_frame_prone = false
+
+-- Simultaneous press detection (prevent prone from same-frame crouch+walk)
+last_crouch_press_time = 0
+last_walk_press_time = 0
+crouch_walk_simultaneity_threshold = 0.002  -- 2ms window (0.002 seconds)
+
 -- Inventory/PDA state
 inventoring = false
 pdaing = false

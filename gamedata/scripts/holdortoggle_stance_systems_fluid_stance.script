@@ -229,7 +229,74 @@ local function deactivate_prone_via_walk()
 end
 
 function on_key_press(key)
-    -- Don't process any stance keys if we're programmatically toggling prone
+    -- ========================================
+    -- CHECK ORDER IS CRITICAL - DO NOT REORDER
+    -- ========================================
+    -- Priority order (highest to lowest):
+    -- 1. Programmatic cancellation flag clearing (prevents stale flags)
+    -- 2. Simultaneity detection (prevents accidental prone from same-frame presses)
+    -- 3. Programmatic operation blocking (prevents interference during prone toggle)
+    -- 4. Main handler logic (crouch/walk/prone key processing)
+
+    -- PRIORITY 1: Handle programmatic crouch cancellation FIRST (before any early returns)
+    -- WHY: Ensures the flag is ALWAYS cleared, even when blocked by other checks.
+    -- BUG FIX: Without this at the top, rapid crouch→walk→crouch sequences would leave
+    --          the flag set permanently, causing future presses to be ignored.
+    if (key == bind_to_dik(key_bindings.kCROUCH)) and state.canceling_crouch then
+        utils.debug_log("[FLUID_STANCE] Clearing canceling_crouch flag (programmatic cancellation detected)")
+        state.canceling_crouch = false
+        return false  -- Don't continue processing
+    end
+
+    -- PRIORITY 1: Handle programmatic walk cancellation FIRST (before any early returns)
+    -- WHY: Same reason as crouch - ensures flag is always cleared.
+    if (key == bind_to_dik(key_bindings.kACCEL)) and state.canceling_walk then
+        utils.debug_log("[FLUID_STANCE] Clearing canceling_walk flag (programmatic cancellation detected)")
+        state.canceling_walk = false
+        return false  -- Don't continue processing
+    end
+
+    -- PRIORITY 2: SIMULTANEOUS PRESS DETECTION (MUST run before toggling_prone_programmatically check)
+    -- WHY: Prevents accidental prone activation from same-frame crouch+walk presses.
+    -- CRITICAL: This check MUST run before toggling_prone_programmatically check, otherwise
+    --           simultaneous presses during prone toggle would bypass detection.
+    -- NOTE: We check ONLY timestamp, NOT IsMoveState(). The engine updates move states AFTER
+    --       all handlers finish, so IsMoveState() is always stale for same-frame keys.
+    --       Timestamp is the ground truth for simultaneity.
+
+    -- Crouch key: Block if walk was pressed very recently (< 2ms)
+    if (key == bind_to_dik(key_bindings.kCROUCH)) then
+        local now = time_global()
+        local walk_pressed_recently = (now - state.last_walk_press_time) < (state.crouch_walk_simultaneity_threshold * 1000)
+
+        if walk_pressed_recently then
+            -- BUG FIX: Originally checked "and IsMoveState('mcAccel')" but engine hasn't
+            --          updated mcAccel yet when processing same-frame keys, so check failed.
+            --          Now we trust the timestamp alone - if < 2ms apart, it's simultaneous.
+            utils.debug_log("[FLUID_STANCE] Simultaneous crouch+walk detected (" .. tostring(now - state.last_walk_press_time) .. "ms apart) - blocking crouch to prevent prone")
+            return true
+        end
+
+        state.last_crouch_press_time = now
+    end
+
+    -- Walk key: Block if crouch was pressed very recently (< 2ms)
+    if (key == bind_to_dik(key_bindings.kACCEL)) then
+        local now = time_global()
+        local crouch_pressed_recently = (now - state.last_crouch_press_time) < (state.crouch_walk_simultaneity_threshold * 1000)
+
+        if crouch_pressed_recently then
+            -- BUG FIX: Same as above - timestamp check only, no IsMoveState().
+            utils.debug_log("[FLUID_STANCE] Simultaneous crouch+walk detected (" .. tostring(now - state.last_crouch_press_time) .. "ms apart) - blocking walk to prevent prone")
+            return true
+        end
+
+        state.last_walk_press_time = now
+    end
+
+    -- PRIORITY 3: Don't process any stance keys if we're programmatically toggling prone
+    -- WHY: Prevents user input from interfering with prone activation/deactivation.
+    -- NOTE: This comes AFTER simultaneity checks so they always run, even during prone toggle.
     if toggling_prone_programmatically then
         if (key == bind_to_dik(key_bindings.kCROUCH)) or
            (key == bind_to_dik(key_bindings.kACCEL)) or
@@ -241,58 +308,78 @@ function on_key_press(key)
 
     -- Crouch key pressed
     if (key == bind_to_dik(key_bindings.kCROUCH)) then
-        -- If this is a programmatic restore, skip fluid stance logic
+        -- If this is a programmatic action, skip fluid stance logic
         -- Game engine will still toggle crouch state regardless of return value
-        if state.restoring_crouch_from_sprint_block or state.restoring_crouch_from_prone_exit then
-            utils.debug_log("[FLUID_STANCE] Skipping programmatic crouch restore")
+        if state.restoring_crouch_from_sprint_block or state.restoring_crouch_from_prone_exit or state.fixing_same_frame_prone then
+            utils.debug_log("[FLUID_STANCE] Skipping programmatic crouch action")
             return true  -- Block other handlers, but game engine still processes the key
         end
 
-        -- Deactivate prone if active
+        -- Check if prone is active FIRST (before immediate cancellation)
+        -- Prone exit takes priority over stance switching
         if prone_active then
             deactivate_prone_via_crouch()
-            -- Return early - don't let the crouch key press continue
             return true
         end
 
-        -- If walk is active, switch to crouch (skip if this is programmatic cancellation to avoid recursion)
+        -- If walk is active, immediately cancel it (Fluid Stance behavior)
         if not state.canceling_crouch and IsMoveState("mcAccel") then
             state.canceling_walk = true
             utils.debug_log("[FLUID_STANCE] Canceling walk (crouch pressed)")
             level.press_action(bind_to_dik(key_bindings.kACCEL))
-        elseif state.canceling_crouch then
-            utils.debug_log("[FLUID_STANCE] Skipping opposite stance cancellation (programmatic crouch cancellation)")
-            state.canceling_crouch = false
+
+            -- Schedule TimeEvent to catch same-frame user press
+            -- This handles user pressing crouch again while we're canceling walk
+            CreateTimeEvent("fluid_stance_prevent_prone", "fix_same_frame_crouch_immediate", 0.001, function()
+                return stance_utils.check_same_frame_prone("[FLUID_STANCE]", "crouch", prone_active, "fluid_stance_prevent_prone", "fix_same_frame_crouch_immediate", 1, false)
+            end)
+        else
+            -- No immediate cancellation ran, schedule TimeEvent to catch same-frame presses
+            -- This handles the case where both keys are pressed in the same frame before engine processes them
+            CreateTimeEvent("fluid_stance_prevent_prone", "fix_same_frame_crouch", 0.001, function()
+                return stance_utils.check_same_frame_prone("[FLUID_STANCE]", "walk", prone_active, "fluid_stance_prevent_prone", "fix_same_frame_crouch", 1, false)
+            end)
         end
+
         -- Let crouch key press continue normally
         return false
     end
 
     -- Walk key pressed
     if (key == bind_to_dik(key_bindings.kACCEL)) then
-        -- If this is a programmatic restore, skip fluid stance logic
+        -- If this is a programmatic action, skip fluid stance logic
         -- Game engine will still toggle walk state regardless of return value
-        if state.restoring_walk_from_sprint_block or state.restoring_walk_from_prone_exit then
-            utils.debug_log("[FLUID_STANCE] Skipping programmatic walk restore")
+        if state.restoring_walk_from_sprint_block or state.restoring_walk_from_prone_exit or state.fixing_same_frame_prone then
+            utils.debug_log("[FLUID_STANCE] Skipping programmatic walk action")
             return true  -- Block other handlers, but game engine still processes the key
         end
 
-        -- Deactivate prone if active
+        -- Check if prone is active FIRST (before immediate cancellation)
+        -- Prone exit takes priority over stance switching
         if prone_active then
             deactivate_prone_via_walk()
-            -- Return early - don't let the walk key press continue
             return true
         end
 
-        -- If crouch is active, switch to walk (skip if this is programmatic cancellation to avoid recursion)
+        -- If crouch is active, immediately cancel it (Fluid Stance behavior)
         if not state.canceling_walk and IsMoveState("mcCrouch") then
             state.canceling_crouch = true
             utils.debug_log("[FLUID_STANCE] Canceling crouch (walk pressed)")
             level.press_action(bind_to_dik(key_bindings.kCROUCH))
-        elseif state.canceling_walk then
-            utils.debug_log("[FLUID_STANCE] Skipping opposite stance cancellation (programmatic walk cancellation)")
-            state.canceling_walk = false
+
+            -- Schedule TimeEvent to catch same-frame user press
+            -- This handles user pressing walk again while we're canceling crouch
+            CreateTimeEvent("fluid_stance_prevent_prone", "fix_same_frame_walk_immediate", 0.001, function()
+                return stance_utils.check_same_frame_prone("[FLUID_STANCE]", "walk", prone_active, "fluid_stance_prevent_prone", "fix_same_frame_walk_immediate", 1, false)
+            end)
+        else
+            -- No immediate cancellation ran, schedule TimeEvent to catch same-frame presses
+            -- This handles the case where both keys are pressed in the same frame before engine processes them
+            CreateTimeEvent("fluid_stance_prevent_prone", "fix_same_frame_walk", 0.001, function()
+                return stance_utils.check_same_frame_prone("[FLUID_STANCE]", "crouch", prone_active, "fluid_stance_prevent_prone", "fix_same_frame_walk", 1, false)
+            end)
         end
+
         -- Let walk key press continue normally
         return false
     end
