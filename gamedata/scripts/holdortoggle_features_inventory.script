@@ -256,7 +256,7 @@ function on_key_release(key)
                 else
                     -- No detector was active, just restore the previous slot
                     -- This handles binoculars, rifles, and other items
-                    if pda_last_slot ~= 0 and pda_last_slot ~= 8 then
+                    if pda_last_slot ~= 8 then
                         utils.debug_log("[HOT_PDA] No detector - restoring slot " .. tostring(pda_last_slot))
                         db.actor:activate_slot(pda_last_slot)
                     end
