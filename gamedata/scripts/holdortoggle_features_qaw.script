@@ -45,7 +45,7 @@ end
 function on_key_press(key)
     -- Check if feature is enabled
     if not qaw_close_with_reload then
-        utils.debug_log("[QAW] Feature disabled")
+        -- utils.debug_log("[QAW] Feature disabled")
         return false
     end
 
