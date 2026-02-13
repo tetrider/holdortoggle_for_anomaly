@@ -1,0 +1,116 @@
+-- holdortoggle/features/pda.script
+-- PDA hold/release logic (tap to toggle, hold to temporary open)
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+
+-- MCM options
+local hot_pda = false
+local restore_hands_after_pda = false
+
+function update_options()
+    if ui_mcm then
+        hot_pda = ui_mcm.get("mcm/holdortoggle/qol/hot_pda")
+        restore_hands_after_pda = ui_mcm.get("mcm/holdortoggle/qol/restore_hands_after_pda")
+    end
+end
+
+function on_before_key_press(dik, bind, dis, flags)
+    -- Block default PDA action when hot_pda is enabled
+    -- DON'T block if flags.ret_value is already false (another mod already blocked it, like keywrapper)
+    if bind == key_bindings.kACTIVE_JOBS and hot_pda then
+        if flags.ret_value ~= false then
+            utils.debug_log("[HOT_PDA] on_before_key_press: blocking and tracking, dik=" .. tostring(dik) .. ", flags.ret_value=" .. tostring(flags.ret_value))
+            -- Block the default PDA action
+            flags.ret_value = false
+        else
+            utils.debug_log("[HOT_PDA] on_before_key_press: key already blocked by another mod (keywrapper?), tracking only")
+        end
+        -- Set pdaing flag here since on_key_press won't be called when we block
+        state.pdaing = true
+        if state.holding_pda then
+            state.holding_pda = false
+        end
+    end
+end
+
+function on_key_press(key)
+    -- PDA key press
+    if (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) then
+        utils.debug_log("[HOT_PDA] on_key_press: PDA key pressed, hot_pda=" .. tostring(hot_pda) .. ", pdaing=" .. tostring(state.pdaing) .. ", holding_pda=" .. tostring(state.holding_pda))
+        state.pdaing = true
+
+        if state.holding_pda then
+            state.holding_pda = false
+        end
+    end
+end
+
+function on_key_hold(key)
+    -- PDA key hold
+    if (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) then
+        local holds = ui_mcm.key_hold("holdortoggle", key)
+        utils.debug_log("[HOT_PDA] on_key_hold called: hot_pda=" .. tostring(hot_pda) .. ", holds=" .. tostring(holds))
+        if holds and hot_pda then
+            utils.debug_log("[HOT_PDA] on_key_hold: PDA key held")
+            state.holding_pda = true
+        end
+    end
+end
+
+function on_key_release(key)
+    -- PDA key release
+    if (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) and hot_pda then
+        utils.debug_log("[HOT_PDA] on_key_release: PDA key released, holding_pda=" .. tostring(state.holding_pda) .. ", pdaing=" .. tostring(state.pdaing))
+        if not state.holding_pda and state.pdaing then
+            local pda_menu = ActorMenu.get_pda_menu()
+            local pda3d = get_console_cmd(1, "g_3d_pda")
+
+            -- Check if PDA is shown
+            if pda_menu:IsShown() or (pda3d and db.actor:active_slot() == 8) then
+                utils.debug_log("[HOT_PDA] Closing PDA! pda3d=" .. tostring(pda3d) .. ", pda_menu:IsShown()=" .. tostring(pda_menu:IsShown()) .. ", current_slot=" .. tostring(db.actor:active_slot()))
+
+                -- Notify pda_hands feature that PDA is closing (if it's loaded)
+                if holdortoggle_features_pda_hands and holdortoggle_features_pda_hands.on_pda_close then
+                    holdortoggle_features_pda_hands.on_pda_close()
+                end
+
+                -- Hide PDA dialog if in 2D mode
+                if not pda3d then
+                    utils.debug_log("[HOT_PDA] Calling pda_menu:HideDialog() for 2D PDA")
+                    pda_menu:HideDialog()
+                    utils.debug_log("[HOT_PDA] After HideDialog(), pda_menu:IsShown()=" .. tostring(pda_menu:IsShown()))
+                else
+                    utils.debug_log("[HOT_PDA] 3D PDA mode - closing PDA")
+                    -- For 3D PDA, we need to switch away from slot 8
+                    -- Only switch to NO_ACTIVE_SLOT if pda_hands is not handling restoration
+                    if not restore_hands_after_pda then
+                        utils.debug_log("[HOT_PDA] Switching to NO_ACTIVE_SLOT (restore_hands_after_pda disabled)")
+                        db.actor:activate_slot(NO_ACTIVE_SLOT)
+                    else
+                        utils.debug_log("[HOT_PDA] Skipping slot switch - pda_hands will handle restoration")
+                    end
+                end
+            -- Open PDA if player has one in slot 8
+            elseif db.actor:item_in_slot(8) then
+                utils.debug_log("[HOT_PDA] Opening PDA!")
+
+                -- Notify pda_hands feature that PDA is opening (if it's loaded)
+                if holdortoggle_features_pda_hands and holdortoggle_features_pda_hands.on_pda_open then
+                    holdortoggle_features_pda_hands.on_pda_open()
+                end
+
+                local pda3d = get_console_cmd(1, "g_3d_pda")
+                if pda3d then
+                    db.actor:activate_slot(8)
+                else
+                    local pda_menu = ActorMenu.get_pda_menu()
+                    pda_menu:ShowDialog(true)
+                    pda_menu:SetActiveSubdialog("eptTasks")
+                end
+            end
+        end
+        state.holding_pda = false
+        state.pdaing = false
+    end
+end

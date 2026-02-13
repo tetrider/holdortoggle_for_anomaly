@@ -9,6 +9,9 @@ local stance_utils = holdortoggle_stance_utils
 local movement_base = holdortoggle_movement_base
 local lean = holdortoggle_features_lean
 local inventory = holdortoggle_features_inventory
+local pda = holdortoggle_features_pda
+local pda_hands = holdortoggle_features_pda_hands
+local detector = holdortoggle_features_detector
 local autowalk = holdortoggle_features_autowalk
 local qaw = holdortoggle_features_qaw
 local vanilla_prone = holdortoggle_stance_systems_vanilla_prone
@@ -22,6 +25,9 @@ function initialize()
         movement_base = movement_base,
         lean = lean,
         inventory = inventory,
+        pda = pda,
+        pda_hands = pda_hands,
+        detector = detector,
         autowalk = autowalk,
         qaw = qaw,
         vanilla_prone = vanilla_prone,
@@ -62,6 +68,16 @@ end
 function on_before_key_press(dik, bind, dis, flags)
     -- Inventory needs to block first
     if inventory.on_before_key_press(dik, bind, dis, flags) then
+        return true
+    end
+
+    -- PDA (hold/release)
+    if pda.on_before_key_press(dik, bind, dis, flags) then
+        return true
+    end
+
+    -- Detector (weapon + detector prevention)
+    if detector.on_before_key_press(dik, bind, dis, flags) then
         return true
     end
 
@@ -140,6 +156,7 @@ function on_key_press(key)
     movement_base.on_key_press(key)
     lean.on_key_press(key)
     inventory.on_key_press(key)
+    pda.on_key_press(key)
     autowalk.on_key_press(key)
 
     recursion_counter = recursion_counter - 1
@@ -163,6 +180,7 @@ function on_key_hold(key)
     movement_base.on_key_hold(key)
     lean.on_key_hold(key)
     inventory.on_key_hold(key)
+    pda.on_key_hold(key)
     autowalk.on_key_hold(key)
 end
 
@@ -179,6 +197,7 @@ function on_key_release(key)
     movement_base.on_key_release(key)
     lean.on_key_release(key)
     inventory.on_key_release(key)
+    pda.on_key_release(key)
     autowalk.on_key_release(key)
 end
 

@@ -1,68 +1,16 @@
 -- holdortoggle/features/inventory.script
--- Inventory and PDA hold/release logic
+-- Inventory hold/release logic (tap to toggle, hold to temporary open)
 
 local state = holdortoggle_state
 local utils = holdortoggle_utils
 
--- MCM options
+-- MCM option
 local hot_inventory = false
-local hot_pda = false
-local prevent_weapon_detector = false
-
--- Track last active slot before opening PDA
-local pda_last_slot = 0
--- Track detector object before opening PDA
-local pda_detector_object = nil
--- Track bolt object before opening PDA
-local pda_bolt_object = nil
--- Track knife object before opening PDA
-local pda_knife_object = nil
--- Track weapon lowered state before opening PDA
-local pda_weapon_lowered = false
--- Flag to prevent re-intercepting simulated detector key press
-local simulating_detector = false
 
 function update_options()
     if ui_mcm then
         hot_inventory = ui_mcm.get("mcm/holdortoggle/qol/hot_inventory")
-        hot_pda = ui_mcm.get("mcm/holdortoggle/qol/hot_pda")
-        prevent_weapon_detector = ui_mcm.get("mcm/holdortoggle/qol/prevent_weapon_detector")
     end
-end
-
--- Helper function to restore weapon lowered state after PDA close
--- Continuously requests weapon lowering until it succeeds or times out
-local function restore_weapon_lowered_state(saved_slot, event_id, path_label)
-    if not pda_weapon_lowered then
-        return  -- Nothing to restore
-    end
-
-    local attempt = 0
-    CreateTimeEvent("pda_events", event_id, 1, function()
-        attempt = attempt + 1
-        local current_slot = db.actor:active_slot()
-
-        if attempt > 30 then
-            pda_weapon_lowered = false
-            utils.debug_log("[HOT_PDA] Weapon lowered restore timeout" .. (path_label and (" - " .. path_label) or "") .. " (slot=" .. tostring(current_slot) .. ", expected=" .. tostring(saved_slot) .. ", lowered=" .. tostring(game.actor_weapon_lowered()) .. ")")
-            return true
-        end
-
-        -- Wait for correct slot
-        if current_slot == saved_slot then
-            -- Check if weapon is already lowered
-            if game.actor_weapon_lowered() then
-                pda_weapon_lowered = false
-                utils.debug_log("[HOT_PDA] Weapon lowered state restored" .. (path_label and (" - " .. path_label) or "") .. " (attempt " .. attempt .. ")")
-                return true
-            end
-
-            -- Keep requesting weapon lowering each frame until it succeeds
-            game.actor_lower_weapon(true)
-            utils.debug_log("[HOT_PDA] Requesting weapon lower" .. (path_label and (" - " .. path_label) or "") .. "... (attempt " .. attempt .. ")")
-        end
-        return false
-    end)
 end
 
 function on_before_key_press(dik, bind, dis, flags)
@@ -82,97 +30,6 @@ function on_before_key_press(dik, bind, dis, flags)
         -- Block the default inventory action
         flags.ret_value = false
     end
-
-    -- Block default PDA action when hot_pda is enabled
-    -- DON'T block if flags.ret_value is already false (another mod already blocked it, like keywrapper)
-    if bind == key_bindings.kACTIVE_JOBS and hot_pda then
-        if flags.ret_value ~= false then
-            utils.debug_log("[HOT_PDA] on_before_key_press: blocking and tracking, dik=" .. tostring(dik) .. ", flags.ret_value=" .. tostring(flags.ret_value))
-            -- Block the default PDA action
-            flags.ret_value = false
-        else
-            utils.debug_log("[HOT_PDA] on_before_key_press: key already blocked by another mod (keywrapper?), tracking only")
-        end
-        -- Set pdaing flag here since on_key_press won't be called when we block
-        state.pdaing = true
-        if state.holding_pda then
-            state.holding_pda = false
-        end
-    end
-
-    -- Block default detector action when prevent_weapon_detector is enabled
-    if bind == key_bindings.kDETECTOR and prevent_weapon_detector and not simulating_detector then
-        local current_slot = db.actor:active_slot()
-        local detector = db.actor:active_detector()
-
-        -- Only intercept if detector is not already active and we're not in slot 0
-        -- (slot 0 = empty hands, detector can safely activate)
-        if not detector and current_slot ~= 0 then
-            -- Check what item is in the current slot
-            local item = db.actor:item_in_slot(current_slot)
-            local should_intercept = false
-
-            if item then
-                local section = item:section()
-
-                -- Don't intercept for bolts or knives - they can be used with detector
-                if string.find(section, "bolt") or string.find(section, "knife") then
-                    should_intercept = false
-                    utils.debug_log("[DETECTOR] Item is bolt or knife, not intercepting")
-                -- Check if item is a weapon
-                elseif IsWeapon(item) then
-                    -- For weapons, check if it's two-handed
-                    -- Two-handed weapons typically can't be used alongside detector
-                    local wpn = item:cast_Weapon()
-                    if wpn then
-                        -- Check if weapon is single-handed
-                        -- Single-handed weapons (pistols) can be used with detector
-                        local is_single_handed = wpn:IsSingleHanded()
-                        should_intercept = not is_single_handed
-                        utils.debug_log("[DETECTOR] Item is weapon, single_handed=" .. tostring(is_single_handed) .. ", will intercept=" .. tostring(should_intercept))
-                    end
-                else
-                    -- Non-weapon items (like PDA) - intercept
-                    should_intercept = true
-                    utils.debug_log("[DETECTOR] Item is not weapon, will intercept")
-                end
-            else
-                utils.debug_log("[DETECTOR] No item in slot " .. tostring(current_slot))
-            end
-
-            if should_intercept then
-                utils.debug_log("[DETECTOR] Intercepting detector key, current_slot=" .. tostring(current_slot) .. ", dik=" .. tostring(dik))
-                flags.ret_value = false
-
-                -- Switch to empty hands first
-                db.actor:activate_slot(0)
-                utils.debug_log("[DETECTOR] Switched to slot 0, creating time event for detector activation")
-
-                -- Save the DIK code for the time event
-                local detector_dik = dik
-
-                -- After delay, simulate detector key press to let engine handle activation naturally
-                CreateTimeEvent("detector_events", "activate_detector", 0.5, function()
-                    local current_slot = db.actor:active_slot()
-                    utils.debug_log("[DETECTOR] Time event triggered, current_slot=" .. tostring(current_slot))
-
-                    -- Make sure we're actually in slot 0 before simulating
-                    if current_slot ~= 0 then
-                        utils.debug_log("[DETECTOR] Still not in slot 0, waiting...")
-                        return false  -- Keep trying
-                    end
-
-                    utils.debug_log("[DETECTOR] In slot 0, simulating detector key press with dik=" .. tostring(detector_dik))
-                    simulating_detector = true
-                    level.press_action(detector_dik)
-                    level.release_action(detector_dik)
-                    simulating_detector = false
-                    utils.debug_log("[DETECTOR] Detector key simulated")
-                    return true
-                end)
-            end
-        end
-    end
 end
 
 function on_key_press(key)
@@ -185,16 +42,6 @@ function on_key_press(key)
             state.holding_inventory = false
         end
     end
-
-    -- PDA key press
-    if (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) then
-        utils.debug_log("[HOT_PDA] on_key_press: PDA key pressed, hot_pda=" .. tostring(hot_pda) .. ", pdaing=" .. tostring(state.pdaing) .. ", holding_pda=" .. tostring(state.holding_pda))
-        state.pdaing = true
-
-        if state.holding_pda then
-            state.holding_pda = false
-        end
-    end
 end
 
 function on_key_hold(key)
@@ -202,14 +49,6 @@ function on_key_hold(key)
     if (key == bind_to_dik(key_bindings.kINVENTORY)) and ui_mcm.key_hold("holdortoggle", key) and hot_inventory then
         utils.debug_log("[HOT_INV] on_key_hold: inventory key held")
         state.holding_inventory = true
-    -- PDA key hold
-    elseif (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) then
-        local holds = ui_mcm.key_hold("holdortoggle", key)
-        utils.debug_log("[HOT_PDA] on_key_hold called: hot_pda=" .. tostring(hot_pda) .. ", holds=" .. tostring(holds))
-        if holds and hot_pda then
-            utils.debug_log("[HOT_PDA] on_key_hold: PDA key held")
-            state.holding_pda = true
-        end
     end
 end
 
@@ -229,137 +68,5 @@ function on_key_release(key)
         end
         state.holding_inventory = false
         state.inventoring = false
-    -- PDA key release
-    elseif (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) and hot_pda then
-        utils.debug_log("[HOT_PDA] on_key_release: PDA key released, holding_pda=" .. tostring(state.holding_pda) .. ", pdaing=" .. tostring(state.pdaing))
-        if not state.holding_pda and state.pdaing then
-            local pda_menu = ActorMenu.get_pda_menu()
-            local pda3d = get_console_cmd(1, "g_3d_pda")
-
-            -- Check if PDA is shown
-            if pda_menu:IsShown() or (pda3d and db.actor:active_slot() == 8) then
-                utils.debug_log("[HOT_PDA] Closing PDA! pda3d=" .. tostring(pda3d) .. ", pda_menu:IsShown()=" .. tostring(pda_menu:IsShown()) .. ", current_slot=" .. tostring(db.actor:active_slot()))
-
-                -- Restore detector, bolt, and/or knife if they were active before opening PDA
-                local had_bolt_or_knife = (pda_bolt_object ~= nil or pda_knife_object ~= nil)
-
-                -- Restore detector if it was active
-                if pda_detector_object then
-                    utils.debug_log("[HOT_PDA] Restoring detector state (last_slot=" .. tostring(pda_last_slot) .. ")")
-                    if pda3d then
-                        -- Restore weapon first (if any), lower it, then simulate detector
-                        local detector_dik = bind_to_dik(key_bindings.kDETECTOR)
-                        local saved_last_slot = pda_last_slot
-
-                        -- If there was a weapon, restore it first
-                        if saved_last_slot ~= 0 then
-                            utils.debug_log("[HOT_PDA] Restoring weapon slot " .. tostring(saved_last_slot))
-                            db.actor:activate_slot(saved_last_slot)
-
-                            -- Wait for weapon to be active, lower it, then simulate detector
-                            CreateTimeEvent("pda_events", "restore_weapon_then_detector", 1, function()
-                                local weapon_slot = db.actor:active_slot()
-                                if weapon_slot ~= saved_last_slot then
-                                    return false  -- Wait for weapon slot to activate
-                                end
-
-                                -- Weapon slot is active, lower it if needed
-                                if pda_weapon_lowered and not game.actor_weapon_lowered() then
-                                    game.actor_lower_weapon(true)
-                                    return false  -- Keep requesting until lowered
-                                end
-
-                                -- Weapon is lowered (or didn't need lowering), now simulate detector key
-                                level.press_action(detector_dik)
-                                level.release_action(detector_dik)
-                                utils.debug_log("[HOT_PDA] Detector key simulated after weapon ready")
-
-                                -- Clear the weapon lowered flag
-                                pda_weapon_lowered = false
-
-                                return true
-                            end)
-                        else
-                            -- No weapon to restore, just simulate detector key immediately
-                            level.press_action(detector_dik)
-                            level.release_action(detector_dik)
-                            utils.debug_log("[HOT_PDA] Detector key simulated (no weapon)")
-                        end
-                    else
-                        -- 2D PDA mode - also use key simulation
-                        local detector_dik = bind_to_dik(key_bindings.kDETECTOR)
-                        level.press_action(detector_dik)
-                        level.release_action(detector_dik)
-                        utils.debug_log("[HOT_PDA] Detector key simulated (2D mode)")
-                    end
-                    pda_detector_object = nil
-
-                    -- Clear bolt/knife references after restoration (done inside time event)
-                    pda_bolt_object = nil
-                    pda_knife_object = nil
-                else
-                    -- No detector was active, just restore the previous slot
-                    -- This handles binoculars, rifles, and other items
-                    if pda_last_slot ~= 8 then
-                        utils.debug_log("[HOT_PDA] No detector - restoring slot " .. tostring(pda_last_slot))
-                        db.actor:activate_slot(pda_last_slot)
-
-                        -- Restore weapon lowered state if it was lowered
-                        restore_weapon_lowered_state(pda_last_slot, "restore_weapon_lowered", nil)
-                    end
-                end
-
-                -- Hide PDA dialog if in 2D mode
-                if not pda3d then
-                    utils.debug_log("[HOT_PDA] Calling pda_menu:HideDialog() for 2D PDA")
-                    pda_menu:HideDialog()
-                    utils.debug_log("[HOT_PDA] After HideDialog(), pda_menu:IsShown()=" .. tostring(pda_menu:IsShown()))
-                else
-                    utils.debug_log("[HOT_PDA] 3D PDA mode - relying on slot switching to close PDA")
-                end
-            -- Open PDA if player has one in slot 8
-            elseif db.actor:item_in_slot(8) then
-                utils.debug_log("[HOT_PDA] Opening PDA!")
-
-                -- Save current state before opening PDA
-                pda_last_slot = db.actor:active_slot()
-                pda_detector_object = db.actor:active_detector()
-                pda_weapon_lowered = game.actor_weapon_lowered()
-
-                -- Save bolt and knife state if active
-                local current_item = db.actor:item_in_slot(pda_last_slot)
-                if current_item then
-                    local section = current_item:section()
-                    if string.find(section, "bolt") then
-                        pda_bolt_object = current_item
-                        pda_knife_object = nil
-                        utils.debug_log("[HOT_PDA] Bolt was active in slot " .. tostring(pda_last_slot))
-                    elseif string.find(section, "knife") then
-                        pda_knife_object = current_item
-                        pda_bolt_object = nil
-                        utils.debug_log("[HOT_PDA] Knife was active in slot " .. tostring(pda_last_slot))
-                    else
-                        pda_bolt_object = nil
-                        pda_knife_object = nil
-                    end
-                else
-                    pda_bolt_object = nil
-                    pda_knife_object = nil
-                end
-
-                utils.debug_log("[HOT_PDA] Detector was active: " .. tostring(pda_detector_object ~= nil) .. ", bolt was active: " .. tostring(pda_bolt_object ~= nil) .. ", knife was active: " .. tostring(pda_knife_object ~= nil) .. ", last_slot: " .. tostring(pda_last_slot))
-
-                if pda3d then
-                    -- Save current slot before opening PDA
-                    pda_last_slot = db.actor:active_slot()
-                    db.actor:activate_slot(8)
-                else
-                    pda_menu:ShowDialog(true)
-                    pda_menu:SetActiveSubdialog("eptTasks")
-                end
-            end
-        end
-        state.holding_pda = false
-        state.pdaing = false
     end
 end

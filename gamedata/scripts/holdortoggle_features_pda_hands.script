@@ -1,0 +1,171 @@
+-- holdortoggle/features/pda_hands.script
+-- Automatic restoration of weapon and detector after closing PDA
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+
+-- MCM option
+local restore_hands_after_pda = false
+
+-- Track state before opening PDA
+local pda_last_slot = 0
+local pda_detector_object = nil
+local pda_bolt_object = nil
+local pda_knife_object = nil
+local pda_weapon_lowered = false
+
+function update_options()
+    if ui_mcm then
+        restore_hands_after_pda = ui_mcm.get("mcm/holdortoggle/qol/restore_hands_after_pda")
+    end
+end
+
+-- Helper function to restore weapon lowered state after PDA close
+-- Continuously requests weapon lowering until it succeeds or times out
+local function restore_weapon_lowered_state(saved_slot, event_id, path_label)
+    if not pda_weapon_lowered then
+        return  -- Nothing to restore
+    end
+
+    local attempt = 0
+    CreateTimeEvent("pda_events", event_id, 1, function()
+        attempt = attempt + 1
+        local current_slot = db.actor:active_slot()
+
+        if attempt > 30 then
+            pda_weapon_lowered = false
+            utils.debug_log("[PDA_HANDS] Weapon lowered restore timeout" .. (path_label and (" - " .. path_label) or "") .. " (slot=" .. tostring(current_slot) .. ", expected=" .. tostring(saved_slot) .. ", lowered=" .. tostring(game.actor_weapon_lowered()) .. ")")
+            return true
+        end
+
+        -- Wait for correct slot
+        if current_slot == saved_slot then
+            -- Check if weapon is already lowered
+            if game.actor_weapon_lowered() then
+                pda_weapon_lowered = false
+                utils.debug_log("[PDA_HANDS] Weapon lowered state restored" .. (path_label and (" - " .. path_label) or "") .. " (attempt " .. attempt .. ")")
+                return true
+            end
+
+            -- Keep requesting weapon lowering each frame until it succeeds
+            game.actor_lower_weapon(true)
+            utils.debug_log("[PDA_HANDS] Requesting weapon lower" .. (path_label and (" - " .. path_label) or "") .. "... (attempt " .. attempt .. ")")
+        end
+        return false
+    end)
+end
+
+-- Save equipment state when PDA opens
+function on_pda_open()
+    if not restore_hands_after_pda then
+        return
+    end
+
+    -- Save current state before opening PDA
+    pda_last_slot = db.actor:active_slot()
+    pda_detector_object = db.actor:active_detector()
+    pda_weapon_lowered = game.actor_weapon_lowered()
+
+    -- Save bolt and knife state if active
+    local current_item = db.actor:item_in_slot(pda_last_slot)
+    if current_item then
+        local section = current_item:section()
+        if string.find(section, "bolt") then
+            pda_bolt_object = current_item
+            pda_knife_object = nil
+            utils.debug_log("[PDA_HANDS] Bolt was active in slot " .. tostring(pda_last_slot))
+        elseif string.find(section, "knife") then
+            pda_knife_object = current_item
+            pda_bolt_object = nil
+            utils.debug_log("[PDA_HANDS] Knife was active in slot " .. tostring(pda_last_slot))
+        else
+            pda_bolt_object = nil
+            pda_knife_object = nil
+        end
+    else
+        pda_bolt_object = nil
+        pda_knife_object = nil
+    end
+
+    utils.debug_log("[PDA_HANDS] Saved state - Detector: " .. tostring(pda_detector_object ~= nil) .. ", Bolt: " .. tostring(pda_bolt_object ~= nil) .. ", Knife: " .. tostring(pda_knife_object ~= nil) .. ", Slot: " .. tostring(pda_last_slot) .. ", Weapon lowered: " .. tostring(pda_weapon_lowered))
+end
+
+-- Restore equipment state when PDA closes
+function on_pda_close()
+    if not restore_hands_after_pda then
+        return
+    end
+
+    local pda3d = get_console_cmd(1, "g_3d_pda")
+
+    -- Restore detector if it was active
+    if pda_detector_object then
+        utils.debug_log("[PDA_HANDS] Restoring detector state (last_slot=" .. tostring(pda_last_slot) .. ")")
+        if pda3d then
+            -- Restore weapon first (if any), lower it, then simulate detector
+            local detector_dik = bind_to_dik(key_bindings.kDETECTOR)
+            local saved_last_slot = pda_last_slot
+
+            -- If there was a weapon, restore it first
+            if saved_last_slot ~= 0 then
+                utils.debug_log("[PDA_HANDS] Restoring weapon slot " .. tostring(saved_last_slot))
+                db.actor:activate_slot(saved_last_slot)
+
+                -- Wait for weapon to be active, lower it, then simulate detector
+                CreateTimeEvent("pda_events", "restore_weapon_then_detector", 1, function()
+                    local weapon_slot = db.actor:active_slot()
+                    utils.debug_log("[PDA_HANDS] TimeEvent check: current_slot=" .. tostring(weapon_slot) .. ", expected=" .. tostring(saved_last_slot) .. ", weapon_lowered=" .. tostring(game.actor_weapon_lowered()))
+
+                    if weapon_slot ~= saved_last_slot then
+                        utils.debug_log("[PDA_HANDS] Still waiting for weapon slot to activate...")
+                        return false  -- Wait for weapon slot to activate
+                    end
+
+                    -- Weapon slot is active, lower it if needed
+                    if pda_weapon_lowered and not game.actor_weapon_lowered() then
+                        utils.debug_log("[PDA_HANDS] Lowering weapon...")
+                        game.actor_lower_weapon(true)
+                        return false  -- Keep requesting until lowered
+                    end
+
+                    -- Weapon is lowered (or didn't need lowering), now simulate detector key
+                    utils.debug_log("[PDA_HANDS] Simulating detector key press...")
+                    level.press_action(detector_dik)
+                    level.release_action(detector_dik)
+                    utils.debug_log("[PDA_HANDS] Detector key simulated after weapon ready")
+
+                    -- Clear the weapon lowered flag
+                    pda_weapon_lowered = false
+
+                    return true
+                end)
+            else
+                -- No weapon to restore, just simulate detector key immediately
+                level.press_action(detector_dik)
+                level.release_action(detector_dik)
+                utils.debug_log("[PDA_HANDS] Detector key simulated (no weapon)")
+            end
+        else
+            -- 2D PDA mode - also use key simulation
+            local detector_dik = bind_to_dik(key_bindings.kDETECTOR)
+            level.press_action(detector_dik)
+            level.release_action(detector_dik)
+            utils.debug_log("[PDA_HANDS] Detector key simulated (2D mode)")
+        end
+        pda_detector_object = nil
+
+        -- Clear bolt/knife references after restoration
+        pda_bolt_object = nil
+        pda_knife_object = nil
+    else
+        -- No detector was active, just restore the previous slot
+        -- This handles binoculars, rifles, and other items
+        if pda_last_slot ~= 8 and pda_last_slot ~= 0 then
+            utils.debug_log("[PDA_HANDS] No detector - restoring slot " .. tostring(pda_last_slot))
+            db.actor:activate_slot(pda_last_slot)
+
+            -- Restore weapon lowered state if it was lowered
+            restore_weapon_lowered_state(pda_last_slot, "restore_weapon_lowered", nil)
+        end
+    end
+end
