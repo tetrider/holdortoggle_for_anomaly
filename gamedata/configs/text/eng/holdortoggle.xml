@@ -123,7 +123,15 @@
 		<text>PDA on Key Release</text>
 	</string>
 	<string id="ui_mcm_holdortoggle_pda_on_release_desc">
-		<text>Opens PDA on key release after a short press. Hold the PDA key to use other actions (like Key Wrapper > Show Detector when holding CAPSLOCK) without opening the PDA menu.</text>
+		<text>Opens PDA on key release after a short press. Hold the PDA key to use other actions (like Key Wrapper > Show Detector when holding CAPSLOCK) without opening the PDA menu. NOT COMPATIBLE with "PDA Hold to Zoom" (will be auto-disabled if both enabled).</text>
+	</string>
+
+	<!-- pda_hold_to_zoom -->
+	<string id="ui_mcm_holdortoggle_pda_hold_to_zoom">
+		<text>PDA Hold to Zoom</text>
+	</string>
+	<string id="ui_mcm_holdortoggle_pda_hold_to_zoom_desc">
+		<text>Opens PDA, then simulates reload key if held to trigger zoom. Tap again to close PDA. NOT COMPATIBLE with "PDA on Key Release" (takes priority if both enabled).</text>
 	</string>
 
 	<!-- restore_hands_after_pda -->
@@ -131,7 +139,7 @@
 		<text>Restore Hands After PDA</text>
 	</string>
 	<string id="ui_mcm_restore_hands_after_pda_hint_desc">
-		<text>Automatically restore your weapon and detector when closing the PDA with the PDA keybind (not Escape). REQUIRES "PDA on Key Release" to be enabled. If disabled, does not interfere with PDA open/close - vanilla behavior applies.</text>
+		<text>Automatically restore your weapon and detector when closing the PDA with the PDA keybind (not Escape). REQUIRES either "PDA on Key Release" OR "PDA Hold to Zoom" to be enabled. If disabled, does not interfere with PDA open/close - vanilla behavior applies.</text>
 	</string>
 
 	<!-- prevent_weapon_detector -->

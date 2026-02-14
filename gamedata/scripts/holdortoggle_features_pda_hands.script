@@ -4,8 +4,10 @@
 local state = holdortoggle_state
 local utils = holdortoggle_utils
 
--- MCM option
+-- MCM options
 local restore_hands_after_pda = false
+local hot_pda = false
+local pda_hold_to_zoom = false
 
 -- Track state before opening PDA
 local pda_last_slot = 0
@@ -17,6 +19,8 @@ local pda_weapon_lowered = false
 function update_options()
     if ui_mcm then
         restore_hands_after_pda = ui_mcm.get("mcm/holdortoggle/qol/restore_hands_after_pda")
+        hot_pda = ui_mcm.get("mcm/holdortoggle/qol/hot_pda")
+        pda_hold_to_zoom = ui_mcm.get("mcm/holdortoggle/qol/pda_hold_to_zoom")
     end
 end
 
@@ -61,6 +65,12 @@ function on_pda_open()
         return
     end
 
+    -- Check if at least one PDA feature is enabled
+    if not (hot_pda or pda_hold_to_zoom) then
+        utils.debug_log("[PDA_HANDS] Restore hands requires either hot_pda or pda_hold_to_zoom to be enabled")
+        return
+    end
+
     -- Save current state before opening PDA
     pda_last_slot = db.actor:active_slot()
     pda_detector_object = db.actor:active_detector()
@@ -93,6 +103,12 @@ end
 -- Restore equipment state when PDA closes
 function on_pda_close()
     if not restore_hands_after_pda then
+        return
+    end
+
+    -- Check if at least one PDA feature is enabled
+    if not (hot_pda or pda_hold_to_zoom) then
+        utils.debug_log("[PDA_HANDS] Restore hands requires either hot_pda or pda_hold_to_zoom to be enabled")
         return
     end
 
@@ -159,13 +175,19 @@ function on_pda_close()
         pda_knife_object = nil
     else
         -- No detector was active, just restore the previous slot
-        -- This handles binoculars, rifles, and other items
-        if pda_last_slot ~= 8 and pda_last_slot ~= 0 then
+        -- This handles binoculars, rifles, other items, and empty hands
+        if pda_last_slot ~= 8 then
             utils.debug_log("[PDA_HANDS] No detector - restoring slot " .. tostring(pda_last_slot))
-            db.actor:activate_slot(pda_last_slot)
+            if pda_last_slot == 0 then
+                -- Restore empty hands (close PDA)
+                db.actor:activate_slot(NO_ACTIVE_SLOT)
+            else
+                -- Restore weapon/item slot
+                db.actor:activate_slot(pda_last_slot)
 
-            -- Restore weapon lowered state if it was lowered
-            restore_weapon_lowered_state(pda_last_slot, "restore_weapon_lowered", nil)
+                -- Restore weapon lowered state if it was lowered
+                restore_weapon_lowered_state(pda_last_slot, "restore_weapon_lowered", nil)
+            end
         end
     end
 end
