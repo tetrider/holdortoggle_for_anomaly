@@ -17,6 +17,55 @@ function update_options()
     end
 end
 
+-- Helper function: Open PDA, simulate reload, then click for zoom
+local function start_pda_zoom_sequence(context_label)
+    -- Open PDA based on mode
+    local pda_menu = ActorMenu.get_pda_menu()
+    local pda3d = get_console_cmd(1, "g_3d_pda")
+    if pda3d then
+        db.actor:activate_slot(8)
+    else
+        pda_menu:ShowDialog(true)
+        pda_menu:SetActiveSubdialog("eptTasks")
+    end
+
+    -- Simulate reload 5 times
+    local frames_sent = 0
+    CreateTimeEvent("pda_zoom_events", "simulate_reload_" .. context_label, 0, function()
+        frames_sent = frames_sent + 1
+        utils.debug_log("[PDA_ZOOM] " .. context_label .. " - simulating reload (frame " .. frames_sent .. "/5)")
+
+        local reload_dik = bind_to_dik(key_bindings.kWPN_RELOAD)
+        level.press_action(reload_dik)
+        level.release_action(reload_dik)
+
+        if frames_sent >= 5 then
+            utils.debug_log("[PDA_ZOOM] " .. context_label .. " - completed 5 reload attempts")
+            return true  -- Done
+        end
+        return false  -- Continue for next frame
+    end)
+
+    -- After 0.05 seconds, simulate left mouse click (retry up to 5 times if camera mode is active)
+    local click_attempts = 0
+    CreateTimeEvent("pda_zoom_events", "simulate_click_" .. context_label, 0.5, function()
+        click_attempts = click_attempts + 1
+        if game.only_movekeys_allowed() then
+            if click_attempts >= 5 then
+                utils.debug_log("[PDA_ZOOM] " .. context_label .. " - gave up after 5 attempts, camera control mode still active")
+                return true  -- Done, give up
+            end
+            utils.debug_log("[PDA_ZOOM] " .. context_label .. " - camera control mode active, retrying (attempt " .. click_attempts .. "/5)")
+            return false  -- Retry
+        else
+            utils.debug_log("[PDA_ZOOM] " .. context_label .. " - simulating left click after 0.05s (attempt " .. click_attempts .. ")")
+            level.press_action(DIK_keys.MOUSE_1)
+            level.release_action(DIK_keys.MOUSE_1)
+            return true  -- Done
+        end
+    end)
+end
+
 
 function on_before_key_press(dik, bind, dis, flags)
     -- Block default PDA action when hot_pda OR pda_hold_to_zoom is enabled
@@ -73,6 +122,12 @@ function on_key_hold(key)
         -- Check pda_hold_to_zoom FIRST (higher priority)
         if holds and pda_hold_to_zoom then
             if db.actor:item_in_slot(8) then  -- Verify PDA exists
+                -- Don't activate zoom if PDA was already open before pressing the key
+                if state.pda_was_open_before_press then
+                    utils.debug_log("[PDA_ZOOM] PDA already open - ignoring zoom activation")
+                    return
+                end
+
                 -- Set flag immediately when hold detected (even if PDA not fully open yet)
                 state.pda_zoom_opening = true
                 utils.debug_log("[PDA_ZOOM] Hold detected, starting zoom sequence from slot " .. tostring(state.pda_slot_before_open))
@@ -85,7 +140,7 @@ function on_key_hold(key)
                 local is_empty_hands = (state.pda_slot_before_open == 0) and not detector_active
 
                 if is_empty_hands then
-                    -- Empty hands: Open PDA NOW (on hold detection), then start simulating reload
+                    -- Empty hands: Open PDA NOW (on hold detection), then start zoom sequence
                     utils.debug_log("[PDA_ZOOM] Empty hands - hold detected, opening PDA now")
 
                     -- Save equipment state (if restore_hands enabled)
@@ -93,34 +148,9 @@ function on_key_hold(key)
                         holdortoggle_features_pda_hands.on_pda_open()
                     end
 
-                    -- Open PDA based on mode
-                    local pda_menu = ActorMenu.get_pda_menu()
-                    local pda3d = get_console_cmd(1, "g_3d_pda")
-                    if pda3d then
-                        db.actor:activate_slot(8)
-                    else
-                        pda_menu:ShowDialog(true)
-                        pda_menu:SetActiveSubdialog("eptTasks")
-                    end
-
-                    -- Start simulating reload immediately after opening PDA
-                    local frames_sent = 0
-                    CreateTimeEvent("pda_zoom_events", "simulate_reload_empty_hands", 0, function()
-                        frames_sent = frames_sent + 1
-                        utils.debug_log("[PDA_ZOOM] Empty hands - simulating reload (frame " .. frames_sent .. "/5)")
-
-                        -- Simulate reload key
-                        local reload_dik = bind_to_dik(key_bindings.kWPN_RELOAD)
-                        level.press_action(reload_dik)
-                        level.release_action(reload_dik)
-
-                        if frames_sent >= 5 then
-                            utils.debug_log("[PDA_ZOOM] Empty hands - completed 5 reload attempts")
-                            return true  -- Done
-                        end
-                        return false  -- Continue for next frame
-                    end)
-                    return  -- Exit after creating TimeEvent
+                    -- Start the zoom sequence
+                    start_pda_zoom_sequence("Empty hands")
+                    return  -- Exit after creating TimeEvents
                 end
 
                 -- Weapon/Detector: Switch to empty hands first, then use empty hands logic
@@ -153,36 +183,11 @@ function on_key_hold(key)
                         local detector_still_active = db.actor:active_detector() ~= nil
 
                         if current_slot == 0 and not detector_still_active then
-                            -- Now at empty hands with no detector, open PDA
-                            utils.debug_log("[PDA_ZOOM] " .. item_type .. " - now at empty hands (detector deactivated), opening PDA")
-
-                            local pda_menu = ActorMenu.get_pda_menu()
-                            local pda3d = get_console_cmd(1, "g_3d_pda")
-                            if pda3d then
-                                db.actor:activate_slot(8)
-                            else
-                                pda_menu:ShowDialog(true)
-                                pda_menu:SetActiveSubdialog("eptTasks")
-                            end
-
-                            -- Use same reload simulation as empty hands (5 frames)
-                            local frames_sent = 0
-                            CreateTimeEvent("pda_zoom_events", "simulate_reload_weapon", 0, function()
-                                frames_sent = frames_sent + 1
-                                utils.debug_log("[PDA_ZOOM] " .. item_type .. " (via empty hands) - simulating reload (frame " .. frames_sent .. "/5)")
-
-                                local reload_dik = bind_to_dik(key_bindings.kWPN_RELOAD)
-                                level.press_action(reload_dik)
-                                level.release_action(reload_dik)
-
-                                if frames_sent >= 5 then
-                                    utils.debug_log("[PDA_ZOOM] " .. item_type .. " (via empty hands) - completed 5 reload attempts")
-                                    return true
-                                end
-                                return false
-                            end)
+                            -- Now at empty hands with no detector, start zoom sequence
+                            utils.debug_log("[PDA_ZOOM] " .. item_type .. " - now at empty hands (detector deactivated), starting zoom sequence")
+                            start_pda_zoom_sequence(item_type .. " (via empty hands)")
                             return true  -- Done switching
-                        elseif attempt > 100 then
+                        elseif attempt > 300 then
                             utils.debug_log("[PDA_ZOOM] " .. item_type .. " - timeout waiting for empty hands (current=" .. tostring(current_slot) .. ")")
                             return true
                         end
@@ -191,45 +196,6 @@ function on_key_hold(key)
                     end)
                     return  -- Exit after creating TimeEvent for weapon
                 end
-
-                -- Empty hands: wait for PDA to open, then wait for animation to complete before simulating reload
-                local attempt = 0
-                local pda_opened_at = nil
-                CreateTimeEvent("pda_zoom_events", "simulate_reload", 1, function()
-                    attempt = attempt + 1
-
-                    -- Verify PDA is open
-                    local pda_menu = ActorMenu.get_pda_menu()
-                    local pda3d = get_console_cmd(1, "g_3d_pda")
-                    local is_pda_open = pda_menu:IsShown() or (pda3d and db.actor:active_slot() == 8)
-
-                    if is_pda_open then
-                        if not pda_opened_at then
-                            -- Mark when PDA opened
-                            pda_opened_at = attempt
-                            utils.debug_log("[PDA_ZOOM] Empty hands - PDA opened, waiting " .. (required_frames * 0.1) .. "s for animation")
-                        end
-
-                        -- Wait for animation to complete based on what was active before
-                        local frames_since_open = attempt - pda_opened_at
-                        if frames_since_open >= required_frames then
-                            -- Simulate reload key for zoom
-                            local reload_dik = bind_to_dik(key_bindings.kWPN_RELOAD)
-                            level.press_action(reload_dik)
-                            level.release_action(reload_dik)
-                            utils.debug_log("[PDA_ZOOM] Empty hands - reload key simulated after " .. (frames_since_open * 0.1) .. "s delay")
-                            return true  -- Complete
-                        end
-                        return false  -- Keep waiting for animation
-                    elseif attempt > 30 then
-                        -- Timeout after 3 seconds
-                        utils.debug_log("[PDA_ZOOM] Empty hands - timeout waiting for PDA")
-                        state.pda_zoom_opening = false
-                        return true
-                    end
-
-                    return false  -- Keep waiting for PDA to open
-                end)
             else
                 utils.debug_log("[PDA_ZOOM] No PDA in slot 8")
             end
