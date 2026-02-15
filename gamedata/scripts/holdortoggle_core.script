@@ -66,6 +66,11 @@ end
 
 -- Before key press handler
 function on_before_key_press(dik, bind, dis, flags)
+    -- QAW (needs to block reload/alt when wheel is shown)
+    if qaw.on_before_key_press(dik, bind, dis, flags) then
+        return true
+    end
+
     -- Inventory needs to block first
     if inventory.on_before_key_press(dik, bind, dis, flags) then
         return true

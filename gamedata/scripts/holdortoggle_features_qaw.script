@@ -41,45 +41,41 @@ function update_options()
     end
 end
 
--- Key press handler - called by core
-function on_key_press(key)
+-- Before key press handler - called by core
+function on_before_key_press(dik, bind, dis, flags)
     -- Check if feature is enabled
     if not qaw_close_with_reload then
-        -- utils.debug_log("[QAW] Feature disabled")
         return false
     end
 
     if not qaw_installed then
-        utils.debug_log("[QAW] QAW not installed")
         return false
     end
 
     local qaw = _G.haru_quick_action_wheel_mcm
-    if not qaw then
-        utils.debug_log("[QAW] QAW global not found")
+    if not qaw or not qaw.GUI then
         return false
     end
 
-    if not qaw.GUI then
-        utils.debug_log("[QAW] QAW.GUI not found")
-        return false
-    end
-
-    if not qaw.GUI:IsShown() then
-        return false  -- Don't log this one, it happens all the time
-    end
-
-    utils.debug_log("[QAW] QAW is shown, checking key: " .. tostring(key))
-
-    -- Check if reload key was pressed
+    -- Check if reload key was pressed FIRST, before checking if QAW is shown
     local reload_key = bind_to_dik(key_bindings.kWPN_RELOAD)
-    utils.debug_log("[QAW] Reload key binding: " .. tostring(reload_key))
-    if key == reload_key then
-        utils.debug_log("[QAW] Reload key pressed, closing QAW")
-        qaw.GUI:Close()
-        return true
+    if dik ~= reload_key then
+        return false  -- Not a key we care about
     end
 
+    -- Now check if QAW is shown
+    if not qaw.GUI:IsShown() then
+        return false
+    end
+
+    utils.debug_log("[QAW] QAW is shown, reload key pressed (dik=" .. tostring(dik) .. "), closing QAW and blocking key")
+    qaw.GUI:Close()
+    flags.ret_value = false  -- Block the key from being processed further
+    return true
+end
+
+-- Key press handler - called by core (no longer used for QAW closing)
+function on_key_press(key)
     return false
 end
 
