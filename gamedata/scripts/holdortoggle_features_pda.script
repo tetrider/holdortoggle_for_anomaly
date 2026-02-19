@@ -5,14 +5,30 @@ local state = holdortoggle_state
 local utils = holdortoggle_utils
 
 -- MCM options
-local hot_pda = false
-local pda_hold_to_zoom = false
+-- pda_mode: 0=Default, 1=On Release, 2=Hold to Zoom, 3=On Release + Zoom
+local pda_mode = 0
 local restore_hands_after_pda = false
+
+-- Helper functions to check mode
+local function is_on_release_mode()
+    return pda_mode == 1 or pda_mode == 3
+end
+
+local function is_hold_to_zoom_mode()
+    return pda_mode == 2
+end
+
+local function is_on_release_zoom_mode()
+    return pda_mode == 3
+end
+
+local function is_pda_feature_enabled()
+    return pda_mode > 0
+end
 
 function update_options()
     if ui_mcm then
-        hot_pda = ui_mcm.get("mcm/holdortoggle/qol/hot_pda")
-        pda_hold_to_zoom = ui_mcm.get("mcm/holdortoggle/qol/pda_hold_to_zoom")
+        pda_mode = ui_mcm.get("mcm/holdortoggle/qol/pda_mode") or 0
         restore_hands_after_pda = ui_mcm.get("mcm/holdortoggle/qol/restore_hands_after_pda")
     end
 end
@@ -68,9 +84,9 @@ end
 
 
 function on_before_key_press(dik, bind, dis, flags)
-    -- Block default PDA action when hot_pda OR pda_hold_to_zoom is enabled
+    -- Block default PDA action when any PDA mode is enabled
     -- DON'T block if flags.ret_value is already false (another mod already blocked it, like keywrapper)
-    if bind == key_bindings.kACTIVE_JOBS and (hot_pda or pda_hold_to_zoom) then
+    if bind == key_bindings.kACTIVE_JOBS and is_pda_feature_enabled() then
         if flags.ret_value ~= false then
             utils.debug_log("[HOT_PDA] on_before_key_press: blocking and tracking, dik=" .. tostring(dik) .. ", flags.ret_value=" .. tostring(flags.ret_value))
             -- Block the default PDA action
@@ -84,8 +100,8 @@ function on_before_key_press(dik, bind, dis, flags)
             state.holding_pda = false
         end
 
-        -- pda_hold_to_zoom: Save state but DON'T open PDA yet (wait for hold or release)
-        if pda_hold_to_zoom and db.actor:item_in_slot(8) then
+        -- Hold to Zoom mode: Save state but DON'T open PDA yet (wait for hold or release)
+        if is_hold_to_zoom_mode() and db.actor:item_in_slot(8) then
             local pda_menu = ActorMenu.get_pda_menu()
             local pda3d = get_console_cmd(1, "g_3d_pda")
             local is_pda_open = pda_menu:IsShown() or (pda3d and db.actor:active_slot() == 8)
@@ -106,7 +122,7 @@ end
 
 function on_key_press(key)
     -- PDA key press
-    -- NOTE: This won't be called when hot_pda or pda_hold_to_zoom is enabled
+    -- NOTE: This won't be called when any PDA mode is enabled
     -- because on_before_key_press blocks the key press
     if (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) then
         utils.debug_log("[HOT_PDA] on_key_press: PDA key pressed (shouldn't happen if feature is enabled)")
@@ -117,10 +133,10 @@ function on_key_hold(key)
     -- PDA key hold
     if (key == bind_to_dik(key_bindings.kACTIVE_JOBS)) then
         local holds = ui_mcm.key_hold("holdortoggle", key)
-        utils.debug_log("[HOT_PDA] on_key_hold called: hot_pda=" .. tostring(hot_pda) .. ", pda_hold_to_zoom=" .. tostring(pda_hold_to_zoom) .. ", holds=" .. tostring(holds))
+        utils.debug_log("[HOT_PDA] on_key_hold called: pda_mode=" .. tostring(pda_mode) .. ", holds=" .. tostring(holds))
 
-        -- Check pda_hold_to_zoom FIRST (higher priority)
-        if holds and pda_hold_to_zoom then
+        -- Check Hold to Zoom mode FIRST (higher priority)
+        if holds and is_hold_to_zoom_mode() then
             if db.actor:item_in_slot(8) then  -- Verify PDA exists
                 -- Don't activate zoom if PDA was already open before pressing the key
                 if state.pda_was_open_before_press then
@@ -199,11 +215,11 @@ function on_key_hold(key)
             else
                 utils.debug_log("[PDA_ZOOM] No PDA in slot 8")
             end
-            return  -- Handled by pda_hold_to_zoom
+            return  -- Handled by Hold to Zoom mode
         end
 
-        -- Then check hot_pda (if pda_hold_to_zoom didn't handle it)
-        if holds and hot_pda then
+        -- Then check On Release mode (if Hold to Zoom didn't handle it)
+        if holds and is_on_release_mode() then
             utils.debug_log("[HOT_PDA] on_key_hold: PDA key held")
             state.holding_pda = true
         end
@@ -222,16 +238,16 @@ function on_key_release(key)
             state.pda_zoom_opening = false
         end
 
-        -- Skip release logic if neither feature is enabled
-        if not (hot_pda or pda_hold_to_zoom) then
+        -- Skip release logic if no PDA mode is enabled
+        if not is_pda_feature_enabled() then
             return
         end
 
         utils.debug_log("[HOT_PDA] on_key_release: PDA key released, holding_pda=" .. tostring(state.holding_pda) .. ", pdaing=" .. tostring(state.pdaing) .. ", was_zoom_opening=" .. tostring(was_zoom_opening))
 
-        -- pda_hold_to_zoom: Only close PDA on tap if it's currently open
+        -- Hold to Zoom mode: Only close PDA on tap if it's currently open
         -- Don't close if hold-to-zoom was triggered (just zoomed, don't close)
-        if pda_hold_to_zoom and not was_zoom_opening and not state.holding_pda and state.pdaing then
+        if is_hold_to_zoom_mode() and not was_zoom_opening and not state.holding_pda and state.pdaing then
             local pda_menu = ActorMenu.get_pda_menu()
             local pda3d = get_console_cmd(1, "g_3d_pda")
             local is_pda_open = pda_menu:IsShown() or (pda3d and db.actor:active_slot() == 8)
@@ -274,8 +290,8 @@ function on_key_release(key)
                     pda_menu:SetActiveSubdialog("eptTasks")
                 end
             end
-        -- hot_pda: original toggle behavior
-        elseif hot_pda and not state.holding_pda and not was_zoom_opening and state.pdaing then
+        -- On Release mode: original toggle behavior
+        elseif is_on_release_mode() and not state.holding_pda and not was_zoom_opening and state.pdaing then
             local pda_menu = ActorMenu.get_pda_menu()
             local pda3d = get_console_cmd(1, "g_3d_pda")
 
@@ -306,20 +322,67 @@ function on_key_release(key)
                 end
             -- Open PDA if player has one in slot 8
             elseif db.actor:item_in_slot(8) then
-                utils.debug_log("[HOT_PDA] Opening PDA!")
-
                 -- Notify pda_hands feature that PDA is opening (if it's loaded)
                 if holdortoggle_features_pda_hands and holdortoggle_features_pda_hands.on_pda_open then
                     holdortoggle_features_pda_hands.on_pda_open()
                 end
 
-                local pda3d = get_console_cmd(1, "g_3d_pda")
-                if pda3d then
-                    db.actor:activate_slot(8)
+                -- Mode 3: On Release + Zoom - open with zoom sequence
+                if is_on_release_zoom_mode() then
+                    utils.debug_log("[HOT_PDA] Opening PDA with zoom (On Release + Zoom mode)!")
+
+                    -- Save slot for zoom sequence
+                    state.pda_slot_before_open = db.actor:active_slot()
+
+                    -- Check if detector is active (interferes with PDA zoom)
+                    local detector_active = db.actor:active_detector() ~= nil
+                    local is_empty_hands = (state.pda_slot_before_open == 0) and not detector_active
+
+                    if is_empty_hands then
+                        -- Empty hands: start zoom sequence directly
+                        start_pda_zoom_sequence("On Release + Zoom (empty hands)")
+                    else
+                        -- Weapon/Detector: Switch to empty hands first
+                        local item_type = detector_active and "Detector" or "Weapon"
+
+                        -- If detector is active, simulate detector key to deactivate it
+                        if detector_active then
+                            local detector_dik = bind_to_dik(key_bindings.kDETECTOR)
+                            level.press_action(detector_dik)
+                            level.release_action(detector_dik)
+                        end
+
+                        -- Switch to empty hands
+                        db.actor:activate_slot(NO_ACTIVE_SLOT)
+
+                        -- Wait for empty hands, then start zoom sequence
+                        local attempt = 0
+                        CreateTimeEvent("pda_zoom_events", "on_release_zoom_switch", 0, function()
+                            attempt = attempt + 1
+                            local current_slot = db.actor:active_slot()
+                            local detector_still_active = db.actor:active_detector() ~= nil
+
+                            if current_slot == 0 and not detector_still_active then
+                                start_pda_zoom_sequence("On Release + Zoom (" .. item_type .. ")")
+                                return true
+                            elseif attempt > 300 then
+                                return true  -- Timeout
+                            end
+                            return false
+                        end)
+                    end
                 else
-                    local pda_menu = ActorMenu.get_pda_menu()
-                    pda_menu:ShowDialog(true)
-                    pda_menu:SetActiveSubdialog("eptTasks")
+                    -- Mode 1: On Release - simple open without zoom
+                    utils.debug_log("[HOT_PDA] Opening PDA!")
+
+                    local pda3d = get_console_cmd(1, "g_3d_pda")
+                    if pda3d then
+                        db.actor:activate_slot(8)
+                    else
+                        local pda_menu = ActorMenu.get_pda_menu()
+                        pda_menu:ShowDialog(true)
+                        pda_menu:SetActiveSubdialog("eptTasks")
+                    end
                 end
             end
         end

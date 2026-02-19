@@ -6,8 +6,7 @@ local utils = holdortoggle_utils
 
 -- MCM options
 local restore_hands_after_pda = false
-local hot_pda = false
-local pda_hold_to_zoom = false
+local pda_mode = 0  -- 0=Default, 1=On Release, 2=Hold to Zoom, 3=On Release + Zoom
 
 -- Track state before opening PDA
 local pda_last_slot = 0
@@ -19,8 +18,7 @@ local pda_weapon_lowered = false
 function update_options()
     if ui_mcm then
         restore_hands_after_pda = ui_mcm.get("mcm/holdortoggle/qol/restore_hands_after_pda")
-        hot_pda = ui_mcm.get("mcm/holdortoggle/qol/hot_pda")
-        pda_hold_to_zoom = ui_mcm.get("mcm/holdortoggle/qol/pda_hold_to_zoom")
+        pda_mode = ui_mcm.get("mcm/holdortoggle/qol/pda_mode") or 0
     end
 end
 
@@ -66,8 +64,8 @@ function on_pda_open()
     end
 
     -- Check if at least one PDA feature is enabled
-    if not (hot_pda or pda_hold_to_zoom) then
-        utils.debug_log("[PDA_HANDS] Restore hands requires either hot_pda or pda_hold_to_zoom to be enabled")
+    if pda_mode == 0 then
+        utils.debug_log("[PDA_HANDS] Restore hands requires a PDA mode to be enabled")
         return
     end
 
@@ -107,8 +105,8 @@ function on_pda_close()
     end
 
     -- Check if at least one PDA feature is enabled
-    if not (hot_pda or pda_hold_to_zoom) then
-        utils.debug_log("[PDA_HANDS] Restore hands requires either hot_pda or pda_hold_to_zoom to be enabled")
+    if pda_mode == 0 then
+        utils.debug_log("[PDA_HANDS] Restore hands requires a PDA mode to be enabled")
         return
     end
 

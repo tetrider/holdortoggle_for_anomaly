@@ -126,20 +126,26 @@
 		<text>Prevents crouching while holding LCTRL in inventory. Useful to avoid accidental crouching when viewing full item stats.</text>
 	</string>
 
-	<!-- hot_pda -->
-	<string id="ui_mcm_holdortoggle_pda_on_release">
-		<text>PDA on Key Release</text>
+	<!-- pda_mode -->
+	<string id="ui_mcm_pda_mode_hint">
+		<text>PDA Mode</text>
 	</string>
-	<string id="ui_mcm_holdortoggle_pda_on_release_desc">
-		<text>Opens PDA on key release after a short press. Hold the PDA key to use other actions (like Key Wrapper > Show Detector when holding CAPSLOCK) without opening the PDA menu. NOT COMPATIBLE with "PDA Hold to Zoom" (will be auto-disabled if both enabled).</text>
+	<string id="ui_mcm_pda_mode_hint_desc">
+		<text>Default: Vanilla behavior. On Release: Tap to toggle PDA. Hold to Zoom: Hold opens PDA with zoom. On Release + Zoom: Tap to open with auto-zoom.</text>
 	</string>
 
-	<!-- pda_hold_to_zoom -->
-	<string id="ui_mcm_holdortoggle_pda_hold_to_zoom">
-		<text>PDA Hold to Zoom</text>
+	<!-- pda_mode list items -->
+	<string id="mcm_holdortoggle_qol_pda_mode_lst_Default">
+		<text>Default</text>
 	</string>
-	<string id="ui_mcm_holdortoggle_pda_hold_to_zoom_desc">
-		<text>Opens PDA, then simulates reload key if held to trigger zoom. Tap again to close PDA. NOT COMPATIBLE with "PDA on Key Release" (takes priority if both enabled).</text>
+	<string id="mcm_holdortoggle_qol_pda_mode_lst_On Release">
+		<text>On Release</text>
+	</string>
+	<string id="mcm_holdortoggle_qol_pda_mode_lst_Hold to Zoom">
+		<text>Hold to Zoom</text>
+	</string>
+	<string id="mcm_holdortoggle_qol_pda_mode_lst_On Release + Zoom">
+		<text>On Release + Zoom</text>
 	</string>
 
 	<!-- restore_hands_after_pda -->
