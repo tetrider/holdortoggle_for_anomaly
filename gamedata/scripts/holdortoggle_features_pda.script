@@ -121,6 +121,24 @@ function on_before_key_press(dik, bind, dis, flags)
 end
 
 function on_key_press(key)
+    -- Detect Escape key closing PDA (for hand restoration)
+    if key == DIK_keys.DIK_ESCAPE then
+        local pda_menu = ActorMenu.get_pda_menu()
+        local pda3d = get_console_cmd(1, "g_3d_pda")
+        local is_pda_open = pda_menu:IsShown() or (pda3d and db.actor:active_slot() == 8)
+
+        if is_pda_open and restore_hands_after_pda then
+            utils.debug_log("[HOT_PDA] Escape pressed while PDA open - triggering hand restoration")
+            -- Use TimeEvent to call on_pda_close after PDA actually closes
+            CreateTimeEvent("pda_events", "escape_close_restore", 0, function()
+                if holdortoggle_features_pda_hands and holdortoggle_features_pda_hands.on_pda_close then
+                    holdortoggle_features_pda_hands.on_pda_close()
+                end
+                return true
+            end)
+        end
+    end
+
     -- PDA key press
     -- NOTE: This won't be called when any PDA mode is enabled
     -- because on_before_key_press blocks the key press
