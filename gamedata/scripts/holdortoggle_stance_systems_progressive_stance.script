@@ -319,6 +319,11 @@ function on_key_press(key)
         return false  -- Don't continue processing
     end
 
+    -- PRIORITY 1.5: Skip if blocking movement in inventory
+    if state.blocking_movement_in_inventory then
+        return false
+    end
+
     -- PRIORITY 2: SIMULTANEOUS PRESS DETECTION (MUST run before toggling_prone_programmatically check)
     -- WHY: Prevents accidental prone activation from same-frame crouch+walk presses.
     -- CRITICAL: This check MUST run before toggling_prone_programmatically check, otherwise
@@ -580,6 +585,11 @@ function on_key_press(key)
 end
 
 function on_key_hold(key)
+    -- Skip if blocking movement in inventory
+    if state.blocking_movement_in_inventory then
+        return false
+    end
+
     -- Crouch hold - just track holding state
     -- Note: Timer-based approach handles all progressive transitions
     if (key == bind_to_dik(key_bindings.kCROUCH)) and ui_mcm.key_hold("holdortoggle", key) and IsMoveState("mcCrouch") then
@@ -616,6 +626,11 @@ function on_key_hold(key)
 end
 
 function on_key_release(key)
+    -- Skip if blocking movement in inventory
+    if state.blocking_movement_in_inventory then
+        return false
+    end
+
     -- Handle quick tap when we were waiting for hold/tap decision
     if (key == bind_to_dik(key_bindings.kCROUCH)) and waiting_for_crouch_decision then
         -- Clear holding state to prevent timer from triggering

@@ -4,12 +4,14 @@
 local state = holdortoggle_state
 local utils = holdortoggle_utils
 
--- MCM option
+-- MCM options
 local hot_inventory = false
+local block_crouch_in_inventory = false
 
 function update_options()
     if ui_mcm then
         hot_inventory = ui_mcm.get("mcm/holdortoggle/qol/hot_inventory")
+        block_crouch_in_inventory = ui_mcm.get("mcm/holdortoggle/qol/block_crouch_in_inventory")
     end
 end
 
@@ -69,4 +71,38 @@ function on_key_release(key)
         state.holding_inventory = false
         state.inventoring = false
     end
+end
+
+function GUI_on_hide(name)
+    if name ~= "UIInventory" then return end
+    -- Restore movement when inventory closes (in case crouch was held)
+    if state.blocking_movement_in_inventory and ui_inventory.GUI then
+        utils.debug_log("[HOT_INV] Inventory closed - restoring movement")
+        ui_inventory.GUI:AllowMovement(true)
+        state.blocking_movement_in_inventory = false
+    end
+end
+
+function on_crouch_press()
+    if not block_crouch_in_inventory then return end
+
+    -- Check if crouch key is LCONTROL
+    local crouch_key = bind_to_dik(key_bindings.kCROUCH)
+    if crouch_key ~= DIK_keys.DIK_LCONTROL then return end
+
+    -- Check if inventory is open
+    if not (ui_inventory.GUI and ui_inventory.GUI:IsShown()) then return end
+
+    utils.debug_log("[HOT_INV] Crouch pressed in inventory - blocking movement")
+    ui_inventory.GUI:AllowMovement(false)
+    state.blocking_movement_in_inventory = true
+end
+
+function on_crouch_release()
+    if not state.blocking_movement_in_inventory then return end
+    if not ui_inventory.GUI then return end
+
+    utils.debug_log("[HOT_INV] Crouch released - restoring movement")
+    ui_inventory.GUI:AllowMovement(true)
+    state.blocking_movement_in_inventory = false
 end

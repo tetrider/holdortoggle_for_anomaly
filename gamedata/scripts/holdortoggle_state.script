@@ -44,6 +44,7 @@ crouch_walk_simultaneity_threshold = 0.002  -- 2ms window (0.002 seconds)
 
 -- Inventory/PDA state
 inventoring = false
+blocking_movement_in_inventory = false  -- Block crouch in inventory feature
 pdaing = false
 pda_zoom_opening = false  -- PDA being opened with zoom intent (hold-to-zoom feature)
 pda_was_open_before_press = false  -- Track if PDA was open before key press

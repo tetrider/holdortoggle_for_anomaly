@@ -118,6 +118,14 @@
 		<text>Opens inventory on key release after a short press. Hold the inventory key to use other actions (like Quick Action Wheel). Quick tap to toggle inventory open/closed. Works with whatever key you have bound to inventory in game settings.</text>
 	</string>
 
+	<!-- block_crouch_in_inventory -->
+	<string id="ui_mcm_block_crouch_in_inventory_hint">
+		<text>Block Crouch in Inventory</text>
+	</string>
+	<string id="ui_mcm_block_crouch_in_inventory_hint_desc">
+		<text>Prevents crouching while holding LCTRL in inventory. Useful to avoid accidental crouching when viewing full item stats.</text>
+	</string>
+
 	<!-- hot_pda -->
 	<string id="ui_mcm_holdortoggle_pda_on_release">
 		<text>PDA on Key Release</text>

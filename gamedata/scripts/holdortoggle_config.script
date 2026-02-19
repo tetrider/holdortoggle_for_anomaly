@@ -68,6 +68,7 @@ function on_mcm_load()
                 {id = "hot_sprint_cancel", type = "check", val = 1, def = false},
                 {id = "opposite_lean_cancel", type = "check", val = 1, def = false, hint = "opposite_lean_cancel_hint"},
                 {id = "hot_inventory", type = "check", val = 1, def = false, hint = "holdortoggle_inventory_on_release"},
+                {id = "block_crouch_in_inventory", type = "check", val = 1, def = false, hint = "block_crouch_in_inventory_hint"},
                 {id = "hot_pda", type = "check", val = 1, def = false, hint = "holdortoggle_pda_on_release"},
                 {id = "pda_hold_to_zoom", type = "check", val = 1, def = false, hint = "holdortoggle_pda_hold_to_zoom"},
                 {id = "restore_hands_after_pda", type = "check", val = 1, def = false, hint = "restore_hands_after_pda_hint"},
