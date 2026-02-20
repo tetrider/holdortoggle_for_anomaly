@@ -47,6 +47,11 @@ function toggle_prone_state(current_prone_active, system_name)
         end
     end
 
+    -- Notify stance vignette of stance change
+    if holdortoggle_features_stance_vignette then
+        holdortoggle_features_stance_vignette.on_stance_change()
+    end
+
     return new_prone_active, false
 end
 

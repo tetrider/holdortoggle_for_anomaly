@@ -1,0 +1,37 @@
+-- modxml_holdortoggle_vignette.script
+-- DXML script to inject stance vignette HUD elements into ui_custom_msgs.xml
+-- This avoids overwriting the entire ui_custom_msgs.xml file
+
+function on_xml_read()
+    RegisterScriptCallback("on_xml_read", function(xml_file_name, xml_obj)
+        -- Only modify ui_custom_msgs.xml
+        if xml_file_name == [[ui\ui_custom_msgs.xml]] then
+            -- Insert stance vignette elements at the root level
+            -- Using custom stance_vignette texture (dark edges, transparent center)
+            -- 20 alpha levels for smoother transitions (alpha range: 50-255)
+
+            -- Note: AddCustomStatic z-order is based on add order, not XML attributes
+            -- Vignette may render on top of other HUD elements (like BHS) - known limitation
+            xml_obj:insertFromXMLString([[<stance_vignette_1 x="0" y="0" width="1024" height="768" stretch="1"><texture a="50">dinamic_hud\stance_vignette</texture></stance_vignette_1>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_2 x="0" y="0" width="1024" height="768" stretch="1"><texture a="61">dinamic_hud\stance_vignette</texture></stance_vignette_2>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_3 x="0" y="0" width="1024" height="768" stretch="1"><texture a="72">dinamic_hud\stance_vignette</texture></stance_vignette_3>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_4 x="0" y="0" width="1024" height="768" stretch="1"><texture a="83">dinamic_hud\stance_vignette</texture></stance_vignette_4>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_5 x="0" y="0" width="1024" height="768" stretch="1"><texture a="94">dinamic_hud\stance_vignette</texture></stance_vignette_5>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_6 x="0" y="0" width="1024" height="768" stretch="1"><texture a="105">dinamic_hud\stance_vignette</texture></stance_vignette_6>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_7 x="0" y="0" width="1024" height="768" stretch="1"><texture a="116">dinamic_hud\stance_vignette</texture></stance_vignette_7>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_8 x="0" y="0" width="1024" height="768" stretch="1"><texture a="127">dinamic_hud\stance_vignette</texture></stance_vignette_8>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_9 x="0" y="0" width="1024" height="768" stretch="1"><texture a="138">dinamic_hud\stance_vignette</texture></stance_vignette_9>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_10 x="0" y="0" width="1024" height="768" stretch="1"><texture a="149">dinamic_hud\stance_vignette</texture></stance_vignette_10>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_11 x="0" y="0" width="1024" height="768" stretch="1"><texture a="160">dinamic_hud\stance_vignette</texture></stance_vignette_11>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_12 x="0" y="0" width="1024" height="768" stretch="1"><texture a="171">dinamic_hud\stance_vignette</texture></stance_vignette_12>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_13 x="0" y="0" width="1024" height="768" stretch="1"><texture a="182">dinamic_hud\stance_vignette</texture></stance_vignette_13>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_14 x="0" y="0" width="1024" height="768" stretch="1"><texture a="193">dinamic_hud\stance_vignette</texture></stance_vignette_14>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_15 x="0" y="0" width="1024" height="768" stretch="1"><texture a="204">dinamic_hud\stance_vignette</texture></stance_vignette_15>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_16 x="0" y="0" width="1024" height="768" stretch="1"><texture a="215">dinamic_hud\stance_vignette</texture></stance_vignette_16>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_17 x="0" y="0" width="1024" height="768" stretch="1"><texture a="226">dinamic_hud\stance_vignette</texture></stance_vignette_17>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_18 x="0" y="0" width="1024" height="768" stretch="1"><texture a="237">dinamic_hud\stance_vignette</texture></stance_vignette_18>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_19 x="0" y="0" width="1024" height="768" stretch="1"><texture a="248">dinamic_hud\stance_vignette</texture></stance_vignette_19>]])
+            xml_obj:insertFromXMLString([[<stance_vignette_20 x="0" y="0" width="1024" height="768" stretch="1"><texture a="255">dinamic_hud\stance_vignette</texture></stance_vignette_20>]])
+        end
+    end)
+end

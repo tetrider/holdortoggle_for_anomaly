@@ -192,6 +192,11 @@ local function deactivate_prone_via_stance(config)
 
     toggling_prone_programmatically = false
 
+    -- Notify stance vignette of stance change
+    if holdortoggle_features_stance_vignette then
+        holdortoggle_features_stance_vignette.on_stance_change()
+    end
+
     utils.debug_log(config.system_name .. " " .. config.stance_name .. " exit complete, " .. config.move_state_keep .. "=" .. tostring(IsMoveState(config.move_state_keep)) .. ", " .. config.holding_state_key .. "=" .. tostring(state[config.holding_state_key]))
 
     return should_set_manual_exit
@@ -234,6 +239,10 @@ local function deactivate_prone_via_crouch()
             toggling_crouch_programmatically = true
             level.press_action(bind_to_dik(key_bindings.kCROUCH))
             toggling_crouch_programmatically = false
+            -- Notify stance vignette of stance change
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
+            end
         else
             utils.debug_log("[PROGRESSIVE_STANCE] Stand-up timer fired but conditions not met - tap detected")
         end
@@ -290,6 +299,11 @@ local function transition_to_prone()
         level.press_action(bind_to_dik(key_bindings.kACCEL))
     end
     toggling_prone_programmatically = false
+
+    -- Notify stance vignette of stance change
+    if holdortoggle_features_stance_vignette then
+        holdortoggle_features_stance_vignette.on_stance_change()
+    end
 
     utils.debug_log("[PROGRESSIVE_STANCE] Transition complete, now prone: mcCrouch=" .. tostring(IsMoveState("mcCrouch")) .. ", mcAccel=" .. tostring(IsMoveState("mcAccel")))
 end
@@ -469,6 +483,11 @@ function on_key_press(key)
         crouch_hold_started = true
         crouch_hold_transitioned = false
         state.holding_crouch = true  -- Track holding immediately for timer-based check
+
+        -- Notify stance vignette of stance change (crouch activated from standing)
+        if holdortoggle_features_stance_vignette then
+            holdortoggle_features_stance_vignette.on_stance_change()
+        end
 
         -- Start timer to check if still holding after threshold (for progressive prone)
         local hold_time = get_hold_time()
@@ -662,6 +681,10 @@ function on_key_release(key)
                 toggling_crouch_programmatically = true
                 level.press_action(bind_to_dik(key_bindings.kCROUCH))
                 toggling_crouch_programmatically = false
+                -- Notify stance vignette of stance change
+                if holdortoggle_features_stance_vignette then
+                    holdortoggle_features_stance_vignette.on_stance_change()
+                end
             end
             utils.holdfix()
             return true
@@ -698,6 +721,10 @@ function on_key_release(key)
                 toggling_crouch_programmatically = true
                 level.press_action(bind_to_dik(key_bindings.kCROUCH))
                 toggling_crouch_programmatically = false
+                -- Notify stance vignette of stance change
+                if holdortoggle_features_stance_vignette then
+                    holdortoggle_features_stance_vignette.on_stance_change()
+                end
             else
                 utils.debug_log("[PROGRESSIVE_STANCE] NOT toggling crouch (prevented by crouch_hold_transitioned=" .. tostring(crouch_hold_transitioned) .. ")")
             end
@@ -770,6 +797,10 @@ function on_key_release(key)
 
         if should_toggle_off then
             level.press_action(bind_to_dik(key_bindings.kACCEL))
+            -- Notify stance vignette of stance change
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
+            end
         end
 
         state.holding_walk = false

@@ -301,6 +301,10 @@ function on_key_press(key)
             if hot_crouch == 0 then
                 state.holding_crouch = true
             end
+            -- Notify stance vignette of potential stance change
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
+            end
         end
     end
 
@@ -310,6 +314,10 @@ function on_key_press(key)
             -- For Hold mode (0), immediately mark as holding to mimic hold behavior
             if hot_walk == 0 then
                 state.holding_walk = true
+            end
+            -- Notify stance vignette of potential stance change
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
             end
         end
     end
@@ -378,6 +386,10 @@ function on_key_release(key)
             end
             state.holding_crouch = false
             utils.holdfix()
+            -- Notify stance vignette of potential stance change
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
+            end
         end
     -- Walk release (only if no stance system is handling it)
     elseif (key == bind_to_dik(key_bindings.kACCEL)) and state.holding_walk then
@@ -387,6 +399,10 @@ function on_key_release(key)
             end
             state.holding_walk = false
             utils.holdfix()
+            -- Notify stance vignette of potential stance change
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
+            end
         end
     -- Sprint release
     elseif (key == bind_to_dik(stance_utils.get_sprint_key())) then

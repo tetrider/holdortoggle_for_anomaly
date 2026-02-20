@@ -16,6 +16,7 @@ local vanilla_prone = nil
 local fluid_stance = nil
 local progressive_stance = nil
 local qaw = nil
+local stance_vignette = nil
 
 function set_modules(modules)
     movement_base = modules.movement_base
@@ -29,6 +30,7 @@ function set_modules(modules)
     fluid_stance = modules.fluid_stance
     progressive_stance = modules.progressive_stance
     qaw = modules.qaw
+    stance_vignette = modules.stance_vignette
 end
 
 -- Unbind prone key function
@@ -74,6 +76,8 @@ function on_mcm_load()
                 {id = "prevent_weapon_detector", type = "check", val = 1, def = false, hint = "prevent_weapon_with_detector_hint"},
                 {id = "qaw_ignore_modifiers", type = "check", val = 1, def = false, hint = "qaw_ignore_modifiers_hint"},
                 {id = "qaw_close_with_reload", type = "check", val = 1, def = false, hint = "qaw_close_with_reload_hint"},
+                {id = "stance_vignette", type = "check", val = 1, def = false, hint = "stance_vignette_hint"},
+                {id = "vignette_intensity", type = "track", val = 2, def = 1.0, min = 0.1, max = 1.0, step = 0.1, hint = "vignette_intensity_hint"},
             }},
             -- Stance System Tab
             {id = "stance", sh = true, text = "ui_mcm_holdortoggle_stance", gr = {
@@ -258,6 +262,7 @@ function on_option_change()
     if detector then detector.update_options() end
     if autowalk then autowalk.update_options() end
     if qaw then qaw.update_options() end
+    if stance_vignette then stance_vignette.update_options() end
 
     utils.debug_log("[CONFIG] on_option_change completed")
 end

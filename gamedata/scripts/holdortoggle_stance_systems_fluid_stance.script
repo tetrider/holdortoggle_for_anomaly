@@ -171,6 +171,11 @@ local function deactivate_prone_via_stance(config)
         return true
     end)
 
+    -- Notify stance vignette of stance change
+    if holdortoggle_features_stance_vignette then
+        holdortoggle_features_stance_vignette.on_stance_change()
+    end
+
     utils.debug_log(config.system_name .. " " .. config.stance_name .. " exit complete, " .. config.move_state_keep .. "=" .. tostring(IsMoveState(config.move_state_keep)) .. ", " .. config.holding_state_key .. "=" .. tostring(state[config.holding_state_key]))
 
     return should_set_manual_exit
@@ -339,6 +344,11 @@ function on_key_press(key)
             CreateTimeEvent("fluid_stance_prevent_prone", "fix_same_frame_crouch", 0.001, function()
                 return stance_utils.check_same_frame_prone("[FLUID_STANCE]", "walk", prone_active, "fluid_stance_prevent_prone", "fix_same_frame_crouch", 1, false)
             end)
+        end
+
+        -- Notify stance vignette of stance change
+        if holdortoggle_features_stance_vignette then
+            holdortoggle_features_stance_vignette.on_stance_change()
         end
 
         -- Let crouch key press continue normally

@@ -1,0 +1,151 @@
+-- holdortoggle/features/stance_vignette.script
+-- Dynamic vignette effect based on player stance (standing, crouching, prone)
+
+local state = holdortoggle_state
+local utils = holdortoggle_utils
+
+-- MCM options
+local stance_vignette_enabled = false
+local vignette_intensity = 1.0
+
+-- Interpolation state
+local current_alpha = 0  -- 0 to 20 (for 20 alpha levels)
+local target_alpha = 0
+local current_vignette = nil
+local vignette_available = nil  -- nil = not tested, true = works, false = XML nodes missing
+
+function update_options()
+    if ui_mcm then
+        stance_vignette_enabled = ui_mcm.get("mcm/holdortoggle/qol/stance_vignette")
+        vignette_intensity = ui_mcm.get("mcm/holdortoggle/qol/vignette_intensity") or 1.0
+        utils.debug_log("[STANCE_VIGNETTE] update_options - enabled: " .. tostring(stance_vignette_enabled) .. ", intensity: " .. tostring(vignette_intensity))
+    end
+    -- Update vignette immediately when options change
+    if stance_vignette_enabled then
+        update_stance()
+    else
+        remove_vignette()
+    end
+end
+
+-- Called when crouch or walk state changes (from movement_base or stance systems)
+function on_stance_change()
+    utils.debug_log("[STANCE_VIGNETTE] on_stance_change called - enabled: " .. tostring(stance_vignette_enabled))
+    if not stance_vignette_enabled then
+        remove_vignette()
+        return
+    end
+    -- Use TimeEvent to wait for game engine to process the key action
+    -- Delay of 0.05s (50ms) ensures engine has processed the stance change
+    RemoveTimeEvent("stance_vignette", "check_stance")
+    CreateTimeEvent("stance_vignette", "check_stance", 0.05, function()
+        update_stance()
+        return true
+    end)
+end
+
+function update_stance()
+    -- Check actual stance via IsMoveState (only called on state change, not every frame)
+    local is_crouching = IsMoveState("mcCrouch")
+    local is_walking = IsMoveState("mcAccel")
+    local is_prone = is_crouching and is_walking
+
+    utils.debug_log("[STANCE_VIGNETTE] Checking state - mcCrouch: " .. tostring(is_crouching) .. ", mcAccel: " .. tostring(is_walking))
+
+    -- Calculate target alpha (0-20 scale)
+    -- Higher values for more visible effect
+    local new_target
+    if is_prone then
+        new_target = 20 * vignette_intensity  -- Strong effect for prone
+    elseif is_crouching then
+        new_target = 12 * vignette_intensity  -- Subtle effect for crouch
+    else
+        new_target = 4 * vignette_intensity  -- Very subtle effect when standing (~5%)
+    end
+
+    utils.debug_log("[STANCE_VIGNETTE] Stance update - crouching: " .. tostring(is_crouching) .. ", prone: " .. tostring(is_prone) .. ", target: " .. tostring(new_target))
+
+    -- Only start interpolation if target changed
+    if new_target ~= target_alpha then
+        target_alpha = new_target
+        start_interpolation()
+    end
+end
+
+function start_interpolation()
+    RemoveTimeEvent("stance_vignette", "interpolate")
+    CreateTimeEvent("stance_vignette", "interpolate", 0.03, function()
+        -- Interpolate towards target
+        current_alpha = current_alpha + (target_alpha - current_alpha) * 0.15
+
+        -- Update HUD
+        update_hud()
+
+        -- Stop when close enough
+        if math.abs(current_alpha - target_alpha) < 0.1 then
+            current_alpha = target_alpha
+            update_hud()
+            utils.debug_log("[STANCE_VIGNETTE] Interpolation complete - alpha: " .. tostring(current_alpha))
+            return true  -- Stop interpolation
+        end
+        return false  -- Continue
+    end)
+end
+
+function update_hud()
+    -- Skip if we already know vignette XML nodes are missing
+    if vignette_available == false then
+        return
+    end
+
+    local hud = get_hud()
+    local alpha_index = math.floor(current_alpha + 0.5)
+    alpha_index = math.max(0, math.min(20, alpha_index))
+
+    if alpha_index == 0 then
+        remove_vignette_static()
+        return
+    end
+
+    local new_name = "stance_vignette_" .. alpha_index
+    if current_vignette ~= new_name then
+        if current_vignette then
+            hud:RemoveCustomStatic(current_vignette)
+        end
+        utils.debug_log("[STANCE_VIGNETTE] Adding HUD static: " .. new_name)
+
+        -- Use pcall to safely try adding the static (in case DXML didn't inject nodes)
+        local success, err = pcall(function()
+            hud:AddCustomStatic(new_name)
+        end)
+
+        if success then
+            current_vignette = new_name
+            if vignette_available == nil then
+                vignette_available = true
+                utils.debug_log("[STANCE_VIGNETTE] Vignette XML nodes available - feature enabled")
+            end
+        else
+            -- XML node doesn't exist - disable vignette feature
+            if vignette_available == nil then
+                vignette_available = false
+                utils.debug_log("[STANCE_VIGNETTE] WARNING: Vignette XML nodes not found (DXML may not be supported) - feature disabled")
+            end
+            current_vignette = nil
+        end
+    end
+end
+
+function remove_vignette_static()
+    if current_vignette then
+        get_hud():RemoveCustomStatic(current_vignette)
+        current_vignette = nil
+    end
+end
+
+function remove_vignette()
+    remove_vignette_static()
+    current_alpha = 0
+    target_alpha = 0
+    RemoveTimeEvent("stance_vignette", "interpolate")
+end

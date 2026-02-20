@@ -14,6 +14,7 @@ local pda_hands = holdortoggle_features_pda_hands
 local detector = holdortoggle_features_detector
 local autowalk = holdortoggle_features_autowalk
 local qaw = holdortoggle_features_qaw
+local stance_vignette = holdortoggle_features_stance_vignette
 local vanilla_prone = holdortoggle_stance_systems_vanilla_prone
 local fluid_stance = holdortoggle_stance_systems_fluid_stance
 local progressive_stance = holdortoggle_stance_systems_progressive_stance
@@ -30,6 +31,7 @@ function initialize()
         detector = detector,
         autowalk = autowalk,
         qaw = qaw,
+        stance_vignette = stance_vignette,
         vanilla_prone = vanilla_prone,
         fluid_stance = fluid_stance,
         progressive_stance = progressive_stance

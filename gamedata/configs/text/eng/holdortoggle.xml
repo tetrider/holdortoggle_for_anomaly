@@ -180,6 +180,22 @@
 		<text>When QAW is open: Reload key (R) will close the QAW menu.</text>
 	</string>
 
+	<!-- stance_vignette -->
+	<string id="ui_mcm_stance_vignette_hint">
+		<text>Stance Vignette</text>
+	</string>
+	<string id="ui_mcm_stance_vignette_hint_desc">
+		<text>Darkens screen edges based on stance. Standing: no effect. Crouching: light vignette. Prone: stronger vignette. Smooth transitions between states.</text>
+	</string>
+
+	<!-- vignette_intensity -->
+	<string id="ui_mcm_vignette_intensity_hint">
+		<text>Vignette Intensity</text>
+	</string>
+	<string id="ui_mcm_vignette_intensity_hint_desc">
+		<text>Controls the maximum darkness of the stance vignette effect. 0.1 = subtle, 1.0 = full intensity.</text>
+	</string>
+
 	<!-- ========================================== -->
 	<!-- STANCE TAB OPTIONS -->
 	<!-- ========================================== -->
