@@ -291,6 +291,11 @@ function on_key_press(key)
                     utils.debug_log("[MOVEMENT_BASE] on_key_press: NOT canceling aim (hold mode)")
                 end
             end
+
+            -- Notify stance vignette that sprint cancelled crouch/walk states
+            if holdortoggle_features_stance_vignette then
+                holdortoggle_features_stance_vignette.on_stance_change()
+            end
         end
     end
 
