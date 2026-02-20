@@ -33,8 +33,22 @@ function update_options()
     end
 end
 
--- Helper function: Open PDA, simulate reload, then click for zoom
-local function start_pda_zoom_sequence(context_label)
+-- Helper function to check if FDDA is currently animating
+-- Returns false if FDDA is not installed (safe fallback)
+local function is_fdda_animating()
+    -- Check if lam2 (FDDA animation manager) is available and running
+    if lam2 and type(lam2.is_running) == "function" and lam2.is_running() then
+        return true
+    end
+    -- Also check the input manager flag as a fallback
+    if liz_fdda_input_manager and liz_fdda_input_manager.is_input_disabled then
+        return true
+    end
+    return false
+end
+
+-- Internal function that actually performs the PDA zoom sequence (opens PDA and triggers zoom)
+local function start_pda_zoom_sequence_internal(context_label)
     -- Open PDA based on mode
     local pda_menu = ActorMenu.get_pda_menu()
     local pda3d = get_console_cmd(1, "g_3d_pda")
@@ -80,6 +94,86 @@ local function start_pda_zoom_sequence(context_label)
             return true  -- Done
         end
     end)
+end
+
+-- Helper function to switch to empty hands and then start zoom sequence
+local function switch_to_empty_then_zoom(context_label)
+    -- Re-save equipment state NOW (after FDDA restored weapon) for proper hand restoration
+    if holdortoggle_features_pda_hands and holdortoggle_features_pda_hands.on_pda_open then
+        utils.debug_log("[PDA_ZOOM] " .. context_label .. " - re-saving equipment state for hand restoration")
+        holdortoggle_features_pda_hands.on_pda_open()
+    end
+
+    local detector_active = db.actor:active_detector() ~= nil
+
+    -- If detector is active, deactivate it first
+    if detector_active then
+        local detector_dik = bind_to_dik(key_bindings.kDETECTOR)
+        level.press_action(detector_dik)
+        level.release_action(detector_dik)
+        utils.debug_log("[PDA_ZOOM] " .. context_label .. " - deactivating detector before zoom")
+    end
+
+    -- Switch to empty hands
+    db.actor:activate_slot(NO_ACTIVE_SLOT)
+
+    -- Wait for empty hands, then start zoom
+    local attempt = 0
+    CreateTimeEvent("pda_zoom_events", "switch_empty_zoom_" .. context_label, 0, function()
+        attempt = attempt + 1
+        local current_slot = db.actor:active_slot()
+        local detector_still_active = db.actor:active_detector() ~= nil
+
+        if current_slot == 0 and not detector_still_active then
+            utils.debug_log("[PDA_ZOOM] " .. context_label .. " - now at empty hands, starting zoom")
+            start_pda_zoom_sequence_internal(context_label)
+            return true
+        elseif attempt > 300 then
+            utils.debug_log("[PDA_ZOOM] " .. context_label .. " - timeout waiting for empty hands")
+            return true
+        end
+        return false
+    end)
+end
+
+-- Helper function: Open PDA, simulate reload, then click for zoom
+-- Waits for FDDA animation to complete first (if FDDA is installed)
+local function start_pda_zoom_sequence(context_label)
+    -- Wait for FDDA animation to complete before starting PDA zoom sequence
+    if is_fdda_animating() then
+        utils.debug_log("[PDA_ZOOM] " .. context_label .. " - FDDA animation in progress, waiting...")
+        local fdda_wait_attempts = 0
+        CreateTimeEvent("pda_zoom_events", "wait_for_fdda_" .. context_label, 0, function()
+            fdda_wait_attempts = fdda_wait_attempts + 1
+            if is_fdda_animating() then
+                if fdda_wait_attempts > 300 then  -- ~5 seconds timeout
+                    utils.debug_log("[PDA_ZOOM] " .. context_label .. " - FDDA wait timeout, proceeding anyway")
+                    -- Fall through to start the sequence
+                else
+                    return false  -- Keep waiting
+                end
+            end
+            utils.debug_log("[PDA_ZOOM] " .. context_label .. " - FDDA animation complete")
+
+            -- Re-check current state after FDDA completed (FDDA may have restored weapon)
+            local current_slot = db.actor:active_slot()
+            local detector_active = db.actor:active_detector() ~= nil
+            local is_empty_now = (current_slot == 0) and not detector_active
+
+            if is_empty_now then
+                utils.debug_log("[PDA_ZOOM] " .. context_label .. " - empty hands after FDDA, starting zoom")
+                start_pda_zoom_sequence_internal(context_label)
+            else
+                utils.debug_log("[PDA_ZOOM] " .. context_label .. " - weapon/detector active after FDDA (slot=" .. tostring(current_slot) .. "), switching to empty first")
+                switch_to_empty_then_zoom(context_label .. " (post-FDDA)")
+            end
+            return true
+        end)
+        return
+    end
+
+    -- No FDDA animation (or FDDA not installed), start immediately
+    start_pda_zoom_sequence_internal(context_label)
 end
 
 
