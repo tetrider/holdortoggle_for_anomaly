@@ -22,6 +22,7 @@ local toggling_prone_programmatically = false
 local toggling_crouch_programmatically = false
 local walk_held_while_exiting = false  -- Track if walk key was held (for Hold+Toggle mode)
 local prone_activated_by_this_press = false  -- Track if prone was activated by current prone key press
+local restoring_from_prone_exit = false  -- Track if we're programmatically restoring stance after prone exit
 
 -- Progressive transition state
 local crouch_hold_started = false
@@ -181,9 +182,11 @@ local function deactivate_prone_via_stance(config)
             return true  -- Stop without restoring
         end
 
-        -- Restore the stance
+        -- Restore the stance (mark as programmatic to prevent hold-to-prone timer)
         utils.debug_log(config.system_name .. " " .. config.stance_name .. " off after " .. repeat_count .. " frames, restoring")
+        restoring_from_prone_exit = true
         level.press_action(bind_to_dik(config.key_binding_keep))
+        restoring_from_prone_exit = false
         return true  -- Stop
     end)
 
@@ -452,6 +455,14 @@ function on_key_press(key)
             end)
 
             return true
+        end
+
+        -- Skip hold-to-prone setup for programmatic restoration presses after prone exit
+        -- Without this check, the restoration press would start a hold timer that fires
+        -- and transitions back to prone (since holding_crouch is never cleared for programmatic presses)
+        if restoring_from_prone_exit then
+            utils.debug_log("[PROGRESSIVE_STANCE] Skipping hold-to-prone setup (restoration from prone exit)")
+            return false  -- Let the press through without hold detection
         end
 
         -- Mark that we started a crouch press (for hold detection)
