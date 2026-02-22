@@ -390,6 +390,11 @@ function on_key_press(key)
             end)
         end
 
+        -- Notify stance vignette of stance change
+        if holdortoggle_features_stance_vignette then
+            holdortoggle_features_stance_vignette.on_stance_change()
+        end
+
         -- Let walk key press continue normally
         return false
     end
