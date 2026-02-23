@@ -164,7 +164,7 @@
 		<text>Restore Hands After PDA</text>
 	</string>
 	<string id="ui_mcm_restore_hands_after_pda_hint_desc">
-		<text>Automatically restore your weapon and detector when closing the PDA with the PDA keybind (or Escape). REQUIRES either "PDA on Key Release" OR "PDA Hold to Zoom" to be enabled. If disabled, does not interfere with PDA open/close - vanilla behavior applies.</text>
+		<text>Automatically restore your weapon and detector when closing the PDA with the PDA keybind (or Escape). Requires PDA mode</text>
 	</string>
 
 	<!-- prevent_weapon_detector -->
