@@ -8,20 +8,26 @@ Modular architecture with pluggable stance systems and isolated features. Easy t
 
 ```
 holdortoggle/
+├── mcm.script               # Entry point
 ├── core.script              # Event dispatcher, loads modules
 ├── config.script            # MCM menu, option handling
 ├── state.script             # Shared state variables
-├── utils.script             # holdfix(), is_modifier_key()
+├── utils.script             # Utilities (holdfix, is_modifier_key, debug logging)
 ├── stance_utils.script      # Stance-related utilities
-├── movement_base.script     # Basic crouch/walk/sprint
+├── movement_base.script     # Crouch/walk/sprint logic
 ├── features/
-│   ├── lean.script          # Lean hold/toggle/opposite cancel
-│   ├── inventory.script     # Inventory/PDA on release
+│   ├── lean.script          # Lean hold/toggle with opposite cancel
+│   ├── aim.script           # ADS/Zoom hold/toggle with sprint reactivation
 │   ├── autowalk.script      # Auto-walk feature
-│   └── qaw.script           # Quick Action Wheel integration
+│   ├── inventory.script     # Inventory on release
+│   ├── pda.script           # PDA modes (default/release/hold-to-zoom)
+│   ├── pda_hands.script     # Weapon restoration after PDA close
+│   ├── detector.script      # Detector weapon prevention
+│   ├── qaw.script           # Quick Action Wheel integration
+│   └── stance_vignette.script  # Visual stance feedback
 └── stance_systems/
-    ├── vanilla_prone.script      # Vanilla behavior (crouch+walk=prone)
-    ├── fluid_stance.script       # Smooth crouch↔walk↔prone transitions
+    ├── vanilla_prone.script      # Vanilla (crouch+walk=prone)
+    ├── fluid_stance.script       # Smooth transitions, dedicated prone key
     └── progressive_stance.script # Tap=crouch, Hold=prone
 ```
 
@@ -38,6 +44,8 @@ holdortoggle/
 ## Features
 
 **lean.script** - Lean hold/toggle with opposite lean cancel (in Hold+Toggle mode, held lean allows switching)
+
+**aim.script** - ADS/Zoom hold/toggle modes (Hold, Toggle, Hold+Toggle). Sprint reactivation: when both ADS and sprint are in Hold or Hold+Toggle mode, releasing ADS while holding sprint automatically resumes sprinting.
 
 **inventory.script** - Opens inventory/PDA on key release (allows holding for other actions)
 
@@ -73,17 +81,20 @@ function set_pronekey_mode(mode) -- 0=Disabled, 1=Hold, 2=Toggle, 3=Hold+Toggle
 
 Key events → `core` → stance system (if active) → fallback to movement_base/features
 
-Priority: stance system > inventory > lean > movement_base
+Priority: stance system > inventory > lean > aim > movement_base
 
 ## QoL Features
 
 - **Alternative Sprint Cancel** - Sprint only cancels actions when moving forward, preserves body position (LSHIFT can be used for modifiers)
 - **Opposite Lean Cancel** - In Toggle/Hold+Toggle mode, opposite lean key cancels current lean. In Hold+Toggle mode, held lean allows switching instead.
 - **Inventory on Release** - Quick tap opens inventory, hold for other actions (e.g., Quick Action Wheel)
-- **PDA on Release** - Quick tap opens PDA, hold for other actions (e.g., detector via Key Wrapper). Saves current weapon/detector state and restores it when closing.
+- **Block Crouch in Inventory** - Prevents crouching while holding LCTRL in inventory. Useful to avoid accidental crouching when viewing full item stats.
+- **PDA mode** - On Release: Tap to toggle PDA. Hold to Zoom: Hold opens PDA with zoom. On Release + Zoom: Tap to open with auto-zoom.
+- **Restore Hands After PDA** - Automatically restore your weapon and detector when closing the PDA with the PDA keybind (or Escape). Requires PDA mode. If disabled, does not interfere with PDA close
 - **Prevent Weapon with Detector** - When switching from two-handed weapon/item to detector, go to empty hands first.
 - **QAW: Ignore Modifiers on Hold** - Long-press QAW key works even while holding modifiers (allows QAW while sprinting).
 - **QAW: Close with Reload Key** - Reload key (R) closes QAW when open. Useful if you bind tap R to reload and hold R to ammo selector in Key Wrapper.
+- **Stance Vignette** - Darkens screen edges based on stance. Standing: no effect. Crouching: light vignette. Prone: stronger vignette. Smooth transitions between states. Requires DXML. 
 
 ## Adding New Features
 
