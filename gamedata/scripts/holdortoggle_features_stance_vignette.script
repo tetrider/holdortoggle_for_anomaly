@@ -20,6 +20,21 @@ function update_options()
         vignette_intensity = ui_mcm.get("mcm/holdortoggle/qol/vignette_intensity") or 1.0
         utils.debug_log("[STANCE_VIGNETTE] update_options - enabled: " .. tostring(stance_vignette_enabled) .. ", intensity: " .. tostring(vignette_intensity))
     end
+
+    -- CRITICAL: Check if DXML is available before allowing vignette activation
+    -- DXML is required to inject XML nodes - without it, the game will crash
+    if stance_vignette_enabled and _G.DXML == nil then
+        printf("! [STANCE_VIGNETTE] WARNING: DXML not available - vignette feature disabled")
+        printf("! [STANCE_VIGNETTE] Install DXML mod to use stance vignette feature")
+        stance_vignette_enabled = false
+        -- Force-uncheck the MCM option
+        if ui_mcm then
+            ui_mcm.set("mcm/holdortoggle/qol/stance_vignette", false)
+        end
+        remove_vignette()
+        return
+    end
+
     -- Update vignette immediately when options change
     if stance_vignette_enabled then
         update_stance()
