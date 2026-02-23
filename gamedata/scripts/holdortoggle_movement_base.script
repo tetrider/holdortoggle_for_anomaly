@@ -281,15 +281,13 @@ function on_key_press(key)
                 if IsMoveState("mcRLookout") then level.press_action(bind_to_dik(key_bindings.kR_LOOKOUT)) end
             end
 
-            -- Cancel aim/zoom only if aim toggle is ON (in hold mode, releasing aim cancels it anyway)
-            if axr_main.weapon_is_zoomed then
-                utils.debug_log("[MOVEMENT_BASE] on_key_press: weapon_is_zoomed=true, is_aiming_toggled=" .. tostring(state.is_aiming_toggled))
-                if state.is_aiming_toggled then
-                    level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
-                    utils.debug_log("[MOVEMENT_BASE] on_key_press: canceling aim (toggle mode)")
-                else
-                    utils.debug_log("[MOVEMENT_BASE] on_key_press: NOT canceling aim (hold mode)")
-                end
+            -- Cancel aim/zoom unless player is actively holding aim key
+            -- Note: aim toggle is always ON (forced by config), Hold mode is mimicked in aim module
+            if axr_main.weapon_is_zoomed and not state.holding_aim then
+                utils.debug_log("[MOVEMENT_BASE] on_key_press: canceling aim (not actively holding)")
+                level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+            elseif axr_main.weapon_is_zoomed and state.holding_aim then
+                utils.debug_log("[MOVEMENT_BASE] on_key_press: NOT canceling aim (player is holding aim key)")
             end
 
             -- Notify stance vignette that sprint cancelled crouch/walk states

@@ -64,6 +64,17 @@
 		<text>Hold: Hold key to lean (toggle OFF). Toggle: Tap to toggle lean (toggle ON). Hold+Toggle: Both behaviors enabled (toggle ON).</text>
 	</string>
 
+	<!-- hot_aim -->
+	<string id="ui_mcm_mcm_holdortoggle_main_hot_aim">
+		<text>Hold or Toggle - Aim/Zoom</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_aim_hint">
+		<text>Aim/Zoom Mode</text>
+	</string>
+	<string id="ui_mcm_mcm_hot_aim_hint_desc">
+		<text>Hold: Hold key to aim (toggle OFF). Toggle: Tap to toggle aim (toggle ON). Hold+Toggle: Both behaviors enabled (toggle ON).</text>
+	</string>
+
 	<!-- autowalkey -->
 	<string id="ui_mcm_mcm_holdortoggle_main_autowalkey">
 		<text>Autowalk Key</text>
@@ -307,6 +318,17 @@
 		<text>Toggle</text>
 	</string>
 	<string id="mcm_holdortoggle_main_hot_lean_lst_Hold+Toggle">
+		<text>Hold+Toggle</text>
+	</string>
+
+	<!-- Radio Content for hot_aim -->
+	<string id="mcm_holdortoggle_main_hot_aim_lst_Hold">
+		<text>Hold</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_aim_lst_Toggle">
+		<text>Toggle</text>
+	</string>
+	<string id="mcm_holdortoggle_main_hot_aim_lst_Hold+Toggle">
 		<text>Hold+Toggle</text>
 	</string>
 

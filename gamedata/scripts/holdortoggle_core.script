@@ -8,6 +8,7 @@ local config = holdortoggle_config
 local stance_utils = holdortoggle_stance_utils
 local movement_base = holdortoggle_movement_base
 local lean = holdortoggle_features_lean
+local aim = holdortoggle_features_aim
 local inventory = holdortoggle_features_inventory
 local pda = holdortoggle_features_pda
 local pda_hands = holdortoggle_features_pda_hands
@@ -25,6 +26,7 @@ function initialize()
     config.set_modules({
         movement_base = movement_base,
         lean = lean,
+        aim = aim,
         inventory = inventory,
         pda = pda,
         pda_hands = pda_hands,
@@ -167,6 +169,7 @@ function on_key_press(key)
     -- Fall back to other systems
     movement_base.on_key_press(key)
     lean.on_key_press(key)
+    aim.on_key_press(key)
     inventory.on_key_press(key)
     pda.on_key_press(key)
     autowalk.on_key_press(key)
@@ -191,6 +194,7 @@ function on_key_hold(key)
     -- Fall back to other systems
     movement_base.on_key_hold(key)
     lean.on_key_hold(key)
+    aim.on_key_hold(key)
     inventory.on_key_hold(key)
     pda.on_key_hold(key)
     autowalk.on_key_hold(key)
@@ -213,6 +217,7 @@ function on_key_release(key)
     -- Fall back to other systems
     movement_base.on_key_release(key)
     lean.on_key_release(key)
+    aim.on_key_release(key)
     inventory.on_key_release(key)
     pda.on_key_release(key)
     autowalk.on_key_release(key)

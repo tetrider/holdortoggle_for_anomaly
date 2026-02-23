@@ -7,6 +7,7 @@ local utils = holdortoggle_utils
 -- Module references (set by core)
 local movement_base = nil
 local lean = nil
+local aim = nil
 local inventory = nil
 local pda = nil
 local pda_hands = nil
@@ -21,6 +22,7 @@ local stance_vignette = nil
 function set_modules(modules)
     movement_base = modules.movement_base
     lean = modules.lean
+    aim = modules.aim
     inventory = modules.inventory
     pda = modules.pda
     pda_hands = modules.pda_hands
@@ -60,6 +62,7 @@ function on_mcm_load()
                 {id = "hot_walk", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_walk_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
                 {id = "hot_sprint", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_sprint_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
                 {id = "hot_lean", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_lean_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
+                {id = "hot_aim", type = ui_mcm.kb_mod_radio, val = 2, def = 0, hint = "mcm_hot_aim_hint", content = {{0,"Hold"}, {1,"Toggle"}, {2,"Hold+Toggle"}}},
                 {id = "autowalkey", type = "key_bind", val = 2, def = DIK_keys.DIK_W},
                 {id = "modifier", type = ui_mcm.kb_mod_radio, val = 2, def = 3, hint = "mcm_kb_modifier", content = {{0,"mcm_kb_mod_none"}, {1,"mcm_kb_mod_shift"}, {2,"mcm_kb_mod_ctrl"}, {3,"mcm_kb_mod_alt"}}},
                 {id = "mode", type = ui_mcm.kb_mod_radio, val = 2, def = 2, hint = "mcm_kb_mode", content = {{0,"mcm_kb_mode_press"}, {1,"mcm_kb_mode_dtap"}, {2,"mcm_kb_mode_hold"}}},
@@ -186,6 +189,16 @@ function on_option_change()
         utils.debug_log("[CONFIG] Lean toggle already ON")
     end
 
+    -- Aim - always ensure toggle is ON
+    utils.debug_log("[CONFIG] Processing aim - current game toggle: " .. tostring(state.is_aiming_toggled))
+    if not state.is_aiming_toggled then
+        utils.debug_log("[CONFIG] Enabling aim toggle (always ON for all modes)")
+        get_console():execute("g_aim_toggle on")
+        ui_options.set("control/general/aim_toggle", true)
+    else
+        utils.debug_log("[CONFIG] Aim toggle already ON")
+    end
+
     -- Handle stance system selection
     -- Progressive stance always activates (based on stance_system), others require hot_prone > 0
     local should_activate_stance = (stance_system == 2) or (hot_prone and hot_prone > 0)
@@ -256,6 +269,7 @@ function on_option_change()
     -- Update all module options
     if movement_base then movement_base.update_options() end
     if lean then lean.update_options() end
+    if aim then aim.update_options() end
     if inventory then inventory.update_options() end
     if pda then pda.update_options() end
     if pda_hands then pda_hands.update_options() end
