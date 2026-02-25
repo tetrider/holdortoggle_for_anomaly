@@ -81,6 +81,9 @@ function on_mcm_load()
                 {id = "qaw_close_with_reload", type = "check", val = 1, def = false, hint = "qaw_close_with_reload_hint"},
                 {id = "stance_vignette", type = "check", val = 1, def = false, hint = "stance_vignette_hint"},
                 {id = "vignette_intensity", type = "track", val = 2, def = 1.0, min = 0.1, max = 1.0, step = 0.1, hint = "vignette_intensity_hint"},
+                {id = "rapid_aim", type = "check", val = 1, def = false, hint = "rapid_aim_hint"},
+                {id = "rapid_aim_pistol_delay", type = "track", val = 2, def = 0.1, min = 0.0, max = 0.5, step = 0.05, hint = "rapid_aim_pistol_delay_hint"},
+                {id = "rapid_aim_other_delay", type = "track", val = 2, def = 0.3, min = 0.0, max = 1.0, step = 0.05, hint = "rapid_aim_other_delay_hint"},
             }},
             -- Stance System Tab
             {id = "stance", sh = true, text = "ui_mcm_holdortoggle_stance", gr = {
@@ -193,7 +196,7 @@ function on_option_change()
     utils.debug_log("[CONFIG] Processing aim - current game toggle: " .. tostring(state.is_aiming_toggled))
     if not state.is_aiming_toggled then
         utils.debug_log("[CONFIG] Enabling aim toggle (always ON for all modes)")
-        get_console():execute("g_aim_toggle on")
+        get_console():execute("wpn_zoom_toggle on")
         ui_options.set("control/general/aim_toggle", true)
     else
         utils.debug_log("[CONFIG] Aim toggle already ON")
@@ -277,6 +280,11 @@ function on_option_change()
     if autowalk then autowalk.update_options() end
     if qaw then qaw.update_options() end
     if stance_vignette then stance_vignette.update_options() end
+    
+    -- Update fluid_aim settings
+    if _G.fluid_aim_update_settings then
+        _G.fluid_aim_update_settings()
+    end
 
     utils.debug_log("[CONFIG] on_option_change completed")
 end

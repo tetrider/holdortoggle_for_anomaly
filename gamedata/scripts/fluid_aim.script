@@ -1,0 +1,233 @@
+-- fluid_aim.script (patched for holdortoggle compatibility)
+-- Original by Skieppy, patched to work with Hold or Toggle mod
+-- When holdortoggle is managing aim (Hold or Hold+Toggle mode), this script defers to it
+
+local fluid_aim_fire = 0
+local fluid_aim_aim = 0
+local fluid_aim_jammed = false
+local fluid_aim_switch_weapon = false
+local fluid_aim_toggle = false
+local fluid_aim_reset_fire_on_load = true
+
+-- Rapid aim settings
+local rapid_aim_enabled = false
+local rapid_aim_pistol_delay = 0.1
+local rapid_aim_other_delay = 0.3
+
+-- Update settings from MCM
+function fluid_aim_update_settings()
+    if ui_mcm then
+        rapid_aim_enabled = ui_mcm.get("mcm/holdortoggle/qol/rapid_aim")
+        rapid_aim_pistol_delay = ui_mcm.get("mcm/holdortoggle/qol/rapid_aim_pistol_delay")
+        rapid_aim_other_delay = ui_mcm.get("mcm/holdortoggle/qol/rapid_aim_other_delay")
+    end
+end
+
+-- Expose to global for config to call
+_G.fluid_aim_update_settings = fluid_aim_update_settings
+
+-- Compatibility: check if holdortoggle is managing aim
+local function is_holdortoggle_managing_aim()
+    if not ui_mcm then return false end
+    local hot_aim = ui_mcm.get("mcm/holdortoggle/main/hot_aim")
+    return hot_aim == 0 or hot_aim == 2
+end
+
+local function should_aim_be_active()
+    if not holdortoggle_state then return true end
+    if not is_holdortoggle_managing_aim() then return true end
+    
+    local hot_aim = ui_mcm.get("mcm/holdortoggle/main/hot_aim")
+    
+    if hot_aim == 0 then
+        return holdortoggle_state.holding_aim or holdortoggle_state.aim_key_down
+    end
+    
+    if hot_aim == 2 then
+        if holdortoggle_state.aim_key_down then
+            if axr_main.weapon_is_zoomed then
+                holdortoggle_state.aim_key_down = false
+            end
+            return true
+        end
+        return holdortoggle_state.holding_aim
+    end
+    
+    return true
+end
+
+-- TimeEvents
+-- Attempt to fire
+local function fluid_aim_delay_fire_func()
+    if fluid_aim_fire then
+        level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
+    end
+    return true
+end
+
+-- Attempt to aim
+local function fluid_aim_delay_aim_func()
+    if fluid_aim_aim and should_aim_be_active() then
+        level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+    end
+    return true
+end
+
+-- Delay before weapon can aim after switch
+local function fluid_aim_delay_switch_weapon_func()
+    fluid_aim_switch_weapon = true
+    return true
+end
+
+-- Get weapon switch delay based on rapid aim settings
+local function get_weapon_switch_delay(wpn_kind)
+    if not rapid_aim_enabled then
+        -- Original behavior: only pistols get delay
+        if wpn_kind == "w_pistol" then
+            return 0.3
+        end
+        return nil
+    end
+    
+    -- Rapid aim: all weapons get delays
+    if wpn_kind == "w_pistol" then
+        return rapid_aim_pistol_delay
+    else
+        return rapid_aim_other_delay
+    end
+end
+
+-- Actor On Update(Every tick)
+local function actor_on_update()
+    if not (db.actor:alive()) then
+        return
+    end
+
+    -- Check if fire or aim is pressed
+    fluid_aim_fire = key_state(bind_to_dik(key_bindings.kWPN_FIRE)) ~= 0
+
+    -- In Hold+Toggle mode, use our flag instead of key_state for aim
+    if is_holdortoggle_managing_aim() and holdortoggle_state then
+        local hot_aim = ui_mcm.get("mcm/holdortoggle/main/hot_aim")
+        -- Hold mode (0): use aim_key_down
+        -- Hold+Toggle mode (2): use aim_key_down only if NOT holding_aim (tap) OR if holding_aim is true (hold)
+        if hot_aim == 0 then
+            fluid_aim_aim = holdortoggle_state.aim_key_down
+        elseif hot_aim == 2 then
+            -- Only aim if: tapped (aim_key_down and not holding_aim) OR currently holding (holding_aim)
+            fluid_aim_aim = holdortoggle_state.aim_key_down and not holdortoggle_state.holding_aim
+        end
+    elseif ui_options.get("control/general/aim_toggle") then
+        if not (fluid_aim_toggle) then
+            fluid_aim_aim = key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0
+        end
+    else
+        fluid_aim_aim = key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0
+    end
+
+    -- Check if it's a weapon or binocular
+    local wpn = db.actor:active_item()
+    local is_weapon = wpn and (IsWeapon(wpn) or SYS_GetParam(0,wpn:section(),"class") == "WP_BINOC") or false
+    if (is_weapon) then
+        local state = wpn:get_state()
+
+        -- Melee
+        if (SYS_GetParam(0,wpn:section(),"kind") == "w_melee") then
+            -- Not in menus
+            if (actor_menu.last_mode == 0) and (pda.dialog_closed == true) and (not Check_UI()) and (not db.actor:has_info("ui_pda")) then
+                if fluid_aim_fire and not (state == 5) and not fluid_aim_reset_fire_on_load then
+                    level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
+                elseif fluid_aim_aim and not (state == 6) then
+                    level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+                end
+            end
+        -- Firearms
+        elseif not (SYS_GetParam(0,wpn:section(),"kind") == "w_melee") then
+            -- First frame when weapon is being equip
+            if state == 3 then
+                fluid_aim_switch_weapon = false
+                local wpn_kind = SYS_GetParam(0,wpn:section(),"kind")
+
+                local delay = get_weapon_switch_delay(wpn_kind)
+                if delay then
+                    CreateTimeEvent("fluid_aim_delay_switch_weapon", "fluid_aim_delay_switch_weapon", delay, fluid_aim_delay_switch_weapon_func)
+                end
+            end
+
+            -- Not in menus
+            if (actor_menu.last_mode == 0) and (pda.dialog_closed == true) and (not Check_UI()) and (not db.actor:has_info("ui_pda")) then
+                -- Override weapon to idle state after delay timer
+                switch_weapon_state(wpn, fluid_aim_switch_weapon)
+
+                -- Aim weapon logic
+                if fluid_aim_aim and should_aim_be_active() then
+                    if not (axr_main.weapon_is_zoomed) and (game.actor_weapon_lowered() or not (state == 2 or state == 3 or state == 5)) then
+                        CreateTimeEvent("fluid_aim_delay_aim", "fluid_aim_delay_aim", 0, fluid_aim_delay_aim_func)
+                    end
+                end
+                
+                -- Shoot weapon logic (rapid aim)
+                if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load then
+                    if not fluid_aim_jammed and (game.actor_weapon_lowered() or not (state == 2 or state == 3 or state == 5)) then
+                        CreateTimeEvent("fluid_aim_delay_fire", "fluid_aim_delay_fire", 0, fluid_aim_delay_fire_func)
+                    end
+                end
+            end
+        end
+    end
+    wpn = nil
+end
+
+-- Functions
+-- Prematurely force the weapon to aim or shoot after weapon switch delay
+function switch_weapon_state (wpn, fluid_aim_switch_weapon)
+    if wpn:get_state() == 1 and not (wpn:weapon_is_scope()) and not (SYS_GetParam(0,wpn:section(),"kind") == "w_sniper") then
+        if fluid_aim_switch_weapon == true then
+            wpn:switch_state(0)
+            fluid_aim_switch_weapon = false
+        end
+    end
+end
+
+-- Weapon Jammed to prevent jam sound when aiming and shooting
+local function actor_on_weapon_jammed()
+    fluid_aim_jammed = true
+end
+
+-- Key press to prevent toggle aim release from aiming instantly again
+local function on_key_press(key)
+    if (key == bind_to_dik(key_bindings.kWPN_FIRE)) then
+        fluid_aim_reset_fire_on_load = false
+    end
+    if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
+        if ui_options.get("control/general/aim_toggle") and axr_main.weapon_is_zoomed and not is_holdortoggle_managing_aim() then
+            fluid_aim_toggle = true
+        end
+    end
+end
+
+-- Key release to reset toggle aim release
+local function on_key_release(key)
+    if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
+        if ui_options.get("control/general/aim_toggle") and not is_holdortoggle_managing_aim() then
+            fluid_aim_toggle = false
+        end
+    end
+end
+
+-- Prevent fire weapon button state from firing the weapon when dying and loading last save
+local function ignore_fire_key_press()
+    fluid_aim_reset_fire_on_load = true
+end
+
+
+function on_game_start()
+    RegisterScriptCallback("on_key_press", on_key_press)
+    RegisterScriptCallback("on_key_release", on_key_release)
+    RegisterScriptCallback("actor_on_update",actor_on_update)
+    RegisterScriptCallback("actor_on_weapon_jammed",actor_on_weapon_jammed)
+    RegisterScriptCallback("on_option_change", ignore_fire_key_press)
+    
+    -- Load initial settings
+    fluid_aim_update_settings()
+end

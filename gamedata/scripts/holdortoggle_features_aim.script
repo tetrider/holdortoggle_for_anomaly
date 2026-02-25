@@ -5,9 +5,8 @@ local state = holdortoggle_state
 local utils = holdortoggle_utils
 local stance_utils = holdortoggle_stance_utils
 
--- MCM options
-local hot_aim = 0 -- 0=Hold, 1=Toggle, 2=Hold+Toggle
-local hot_sprint = 0 -- Need to check sprint mode for reactivation logic
+local hot_aim = 0
+local hot_sprint = 0
 
 function update_options()
     if ui_mcm then
@@ -17,36 +16,54 @@ function update_options()
 end
 
 function on_before_key_press(dik, bind, dis, flags)
-    -- No blocking logic needed for ADS
     return false
 end
 
 function on_key_press(key)
-    -- Track aim press for Hold mode (0)
-    -- For Hold mode, immediately mark as holding to mimic hold behavior
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
         if hot_aim == 0 then
             state.holding_aim = true
             state.aim_key_down = true
-            utils.debug_log("[AIM] on_key_press: Hold mode - marking as holding")
+            -- Disable wpn_zoom_toggle to prevent engine toggle behavior in Hold mode
+            get_console():execute("wpn_zoom_toggle off")
+            -- Safety: restore toggle after 5s if something goes wrong
+            CreateTimeEvent("holdortoggle_aim_safety", "check", 50.0, function()
+                if (hot_aim == 0 or hot_aim == 2) and not state.holding_aim and not ui_options.get("control/general/aim_toggle") then
+                    get_console():execute("wpn_zoom_toggle on")
+                end
+                return true
+            end)
         elseif hot_aim == 2 then
-            state.aim_key_down = true
-            utils.debug_log("[AIM] on_key_press: Hold+Toggle mode - key down")
+            if axr_main.weapon_is_zoomed then
+                state.aim_key_down = false
+                state.holding_aim = false
+            else
+                state.aim_key_down = true
+                state.holding_aim = false
+            end
         end
     end
 end
 
 function on_key_hold(key)
     local is_modifier = utils.is_modifier_key(key)
-
-    -- Aim hold
-    -- For Hold+Toggle mode (2), track when key passes hold threshold
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) and ui_mcm.key_hold("holdortoggle", key) then
-        -- Only set holding for Hold+Toggle mode (2)
-        -- Hold mode (0) already set it in on_key_press
         if hot_aim == 2 then
             state.holding_aim = true
-            utils.debug_log("[AIM] on_key_hold: Hold+Toggle mode - threshold passed, marking as holding")
+            -- CRITICAL FIX: Disable wpn_zoom_toggle when hold threshold is passed
+            -- This prevents the engine from processing the toggle action during weapon equip animations
+            -- Without this, holding aim during weapon equip from empty hands would still toggle aim on
+            -- because the engine processes the toggle before we can cancel it on release.
+            -- By disabling toggle here, we ensure only our hold-to-aim logic runs.
+            -- Toggle is re-enabled in on_key_release when holding_aim is true.
+            get_console():execute("wpn_zoom_toggle off")
+            -- Safety: restore toggle after 5s if something goes wrong
+            CreateTimeEvent("holdortoggle_aim_safety", "check", 50.0, function()
+                if (hot_aim == 0 or hot_aim == 2) and not state.holding_aim and not ui_options.get("control/general/aim_toggle") then
+                    get_console():execute("wpn_zoom_toggle on")
+                end
+                return true
+            end)
         end
         if is_modifier then return end
     end
@@ -54,38 +71,44 @@ end
 
 function on_key_release(key)
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
-        utils.debug_log("[AIM] on_key_release: aim key released, holding_aim=" .. tostring(state.holding_aim) .. ", weapon_is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
-
         local aim_was_held = state.holding_aim
 
-        -- Handle release based on mode
         if hot_aim == 0 then
-            -- Hold mode: always deactivate if aiming
+            -- Re-enable toggle (was disabled in on_key_press)
+            RemoveTimeEvent("holdortoggle_aim_safety", "check")
+            get_console():execute("wpn_zoom_toggle on")
             if state.holding_aim and axr_main.weapon_is_zoomed then
-                utils.debug_log("[AIM] on_key_release: Hold mode - toggling off")
                 level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
             end
+            state.holding_aim = false
+            state.aim_key_down = false
         elseif hot_aim == 2 then
-            -- Hold+Toggle mode: only deactivate if held past threshold
-            if state.holding_aim and axr_main.weapon_is_zoomed then
-                utils.debug_log("[AIM] on_key_release: Hold+Toggle mode - was held, toggling off")
-                level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+            if state.holding_aim then
+                -- Re-enable toggle (was disabled in on_key_hold)
+                RemoveTimeEvent("holdortoggle_aim_safety", "check")
+                get_console():execute("wpn_zoom_toggle on")
+                if axr_main.weapon_is_zoomed then
+                    level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+                end
+                state.holding_aim = false
+                state.aim_key_down = false
+            else
+                state.holding_aim = false
+                if not axr_main.weapon_is_zoomed then
+                    CreateTimeEvent("holdortoggle_aim_tap", "clear", 2.0, function()
+                        state.aim_key_down = false
+                        return true
+                    end)
+                else
+                    state.aim_key_down = false
+                end
             end
-            -- If tapped (holding_aim is false), game handles toggle normally
         end
 
-        -- Reset states
-        state.holding_aim = false
-        state.aim_key_down = false
-
-        -- Reactivate sprint if player is still holding sprint key
-        -- Only if both aim and sprint are in Hold or Hold+Toggle mode
         if aim_was_held and (hot_aim == 0 or hot_aim == 2) and (hot_sprint == 0 or hot_sprint == 2) then
             if (state.holding_sprint or state.sprint_key_down) and not IsMoveState("mcSprint") and IsMoveState("mcFwd") then
-                utils.debug_log("[AIM] on_key_release: Reactivating sprint after aim release")
                 CreateTimeEvent("holdortoggle_aim", "reactivate_sprint_after_aim", 0.05, function()
                     if (state.holding_sprint or state.sprint_key_down) and not IsMoveState("mcSprint") and IsMoveState("mcFwd") then
-                        utils.debug_log("[AIM] Reactivating sprint now")
                         level.press_action(bind_to_dik(stance_utils.get_sprint_key()))
                     end
                     return true
@@ -93,4 +116,11 @@ function on_key_release(key)
             end
         end
     end
+end
+
+function on_update()
+end
+
+function is_hold_mode()
+    return hot_aim == 0
 end
