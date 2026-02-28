@@ -11,6 +11,14 @@ local fluid_aim_reset_fire_on_load = true
 local prev_fluid_aim_aim = false
 local fluid_aim_fire_queued = false
 local fluid_aim_prev_wpn_state = 0
+local fluid_aim_prev_reload_ammo = -1
+local fluid_aim_current_wpn_id = nil
+local fluid_aim_jammed_weapons = {}   -- weapon IDs known to be jammed, survives weapon switches
+local fluid_aim_reload_interrupted = false  -- set when pump-action reload is force-interrupted
+local fluid_aim_weapon_frame_count = 0  -- frames weapon has been active (resets on switch)
+local fluid_aim_ammo_before_fire = -1  -- tracks ammo before attempting fire
+local fluid_aim_last_fire_ammo = -1  -- tracks ammo when entering state 5 (eFire) to detect silent jams
+local fluid_aim_fire_blocked_frames = 0  -- counts frames where fire is pressed but weapon stays in state 0
 
 local function debug_log(msg)
     if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
@@ -139,6 +147,82 @@ local function actor_on_update()
     if (is_weapon) then
         local state = wpn:get_state()
 
+        -- Reset all per-weapon state when active weapon changes
+        local wpn_id = wpn:id()
+        if wpn_id ~= fluid_aim_current_wpn_id then
+            local inherited_jam = fluid_aim_jammed_weapons[wpn_id] == true
+            debug_log("[FIRE] weapon changed: id=" .. tostring(wpn_id) .. " inherited_jam=" .. tostring(inherited_jam) .. " prev_queue=" .. tostring(fluid_aim_fire_queued) .. " prev_state=" .. tostring(fluid_aim_prev_wpn_state))
+            fluid_aim_current_wpn_id = wpn_id
+            -- Inherit this weapon's known jam state so we don't fire into a previously-jammed weapon
+            fluid_aim_jammed = inherited_jam
+            fluid_aim_fire_queued = false
+            fluid_aim_reload_interrupted = false
+            fluid_aim_prev_reload_ammo = -1
+            fluid_aim_prev_wpn_state = 0
+            fluid_aim_weapon_frame_count = 0  -- Reset frame counter on switch
+        end
+
+        -- Log state changes frame to frame
+        if state ~= fluid_aim_prev_wpn_state then
+            debug_log("[FRAME] wpn_id=" .. tostring(wpn_id) .. " state: " .. tostring(fluid_aim_prev_wpn_state) .. " -> " .. tostring(state) .. " jammed=" .. tostring(fluid_aim_jammed) .. " queued=" .. tostring(fluid_aim_fire_queued) .. " fire_btn=" .. tostring(fluid_aim_fire) .. " in_jam_table=" .. tostring(fluid_aim_jammed_weapons[wpn_id] == true))
+        end
+
+        -- Derive jam state directly from weapon state (eMisfire = 8)
+        if state == 8 then
+            if not fluid_aim_jammed then
+                debug_log("[FIRE] jam detected: wpn_id=" .. tostring(wpn_id) .. " - STORED IN TABLE")
+            end
+            fluid_aim_jammed = true
+            fluid_aim_jammed_weapons[wpn_id] = true  -- Store when jam detected
+        elseif state == 5 and fluid_aim_prev_wpn_state ~= 5 then
+            -- Entering fire state - capture ammo for silent jam detection
+            if fluid_aim_last_fire_ammo < 0 then  -- Only capture once per fire
+                fluid_aim_last_fire_ammo = wpn:get_ammo_in_magazine()
+                debug_log("[FIRE] Entering fire state: wpn_id=" .. tostring(wpn_id) .. " ammo=" .. tostring(fluid_aim_last_fire_ammo))
+            end
+        elseif state == 0 and fluid_aim_prev_wpn_state == 5 then
+            -- Weapon transitioned from fire (5) back to idle (0) - check if ammo was consumed
+            -- This detects silent jams that don't manifest as state 8
+            local ammo_now = wpn:get_ammo_in_magazine()
+            if fluid_aim_last_fire_ammo >= 0 then
+                if ammo_now == fluid_aim_last_fire_ammo then
+                    -- Ammo unchanged - weapon was jammed during that fire attempt
+                    debug_log("[FIRE] Silent jam detected: wpn_id=" .. tostring(wpn_id) .. " ammo_before=" .. tostring(fluid_aim_last_fire_ammo) .. " ammo_after=" .. tostring(ammo_now) .. " - STORED IN TABLE")
+                    fluid_aim_jammed = true
+                    fluid_aim_jammed_weapons[wpn_id] = true
+                elseif ammo_now < fluid_aim_last_fire_ammo then
+                    -- Ammo was consumed - weapon fired successfully, clear from jam table
+                    if fluid_aim_jammed_weapons[wpn_id] then
+                        debug_log("[FIRE] Weapon fired successfully: wpn_id=" .. tostring(wpn_id) .. " ammo_before=" .. tostring(fluid_aim_last_fire_ammo) .. " ammo_after=" .. tostring(ammo_now) .. " - CLEARED FROM TABLE")
+                        fluid_aim_jammed_weapons[wpn_id] = nil
+                        fluid_aim_jammed = false
+                    end
+                end
+            end
+            fluid_aim_last_fire_ammo = -1  -- Reset for next fire
+            fluid_aim_fire_blocked_frames = 0  -- Reset blocked fire counter when fire cycle completes
+        elseif state == 0 and fluid_aim_fire and fluid_aim_prev_wpn_state == 0 then
+            -- Fire button held in idle state but weapon didn't transition to fire (blocked by jam)
+            fluid_aim_fire_blocked_frames = fluid_aim_fire_blocked_frames + 1
+            if fluid_aim_fire_blocked_frames >= 3 then
+                -- Fire has been pressed for 3+ frames but weapon won't fire - it's jammed
+                debug_log("[FIRE] Fire blocked: wpn_id=" .. tostring(wpn_id) .. " frames=" .. tostring(fluid_aim_fire_blocked_frames) .. " weapon severely jammed - STORED IN TABLE")
+                fluid_aim_jammed = true
+                fluid_aim_jammed_weapons[wpn_id] = true
+                fluid_aim_fire_blocked_frames = 0  -- Reset after detecting
+            end
+        elseif state ~= 0 or not fluid_aim_fire then
+            -- Reset counter when fire released or state changes
+            fluid_aim_fire_blocked_frames = 0
+        elseif state == 5 and fluid_aim_prev_wpn_state == 8 then
+            -- Weapon transitioned from jam to fire - no longer actively jammed
+            if fluid_aim_jammed then
+                debug_log("[FIRE] jam cleared: state=" .. tostring(state) .. " prev=" .. tostring(fluid_aim_prev_wpn_state))
+            end
+            fluid_aim_jammed = false
+            -- NOTE: DO NOT remove from jammed_weapons table - keep jam memory persistent
+        end
+
         -- Melee
         if (SYS_GetParam(0,wpn:section(),"kind") == "w_melee") then
             -- Not in menus
@@ -178,21 +262,157 @@ local function actor_on_update()
                 -- Queue shot if fire is held during weapon-raise animation (eShowing = 1)
                 if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load then
                     if not fluid_aim_jammed and state == 1 then
+                        if not fluid_aim_fire_queued then
+                            debug_log("[FIRE] queue set: eShowing jammed=" .. tostring(fluid_aim_jammed) .. " rapid_enabled=" .. tostring(rapid_aim_enabled))
+                        end
                         fluid_aim_fire_queued = true
+                    elseif state == 1 and fluid_aim_jammed then
+                        debug_log("[FIRE] NOT queueing (state=1 but jammed): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
                     end
                 end
-                -- Fire exactly once when weapon finishes raising (eShowing -> eIdle)
-                if fluid_aim_fire_queued and state == 0 and fluid_aim_prev_wpn_state == 1 then
+                -- Clear fire queue if weapon is currently jammed (eMisfire = 8)
+                if fluid_aim_jammed or state == 8 then
+                    if fluid_aim_fire_queued then
+                        debug_log("[FIRE] queue cleared: jammed=" .. tostring(fluid_aim_jammed) .. " state=" .. tostring(state))
+                    end
+                    fluid_aim_fire_queued = false
+                    fluid_aim_reload_interrupted = false
+                end
+
+                -- Fire exactly once when weapon finishes raising or is forced out of reload (-> eIdle)
+                -- fluid_aim_reload_interrupted allows firing even through intermediate states (e.g. eBore pump animation)
+                local should_fire = fluid_aim_fire_queued and not fluid_aim_jammed and state == 0 and
+                        (fluid_aim_prev_wpn_state == 1 or fluid_aim_prev_wpn_state == 7 or fluid_aim_reload_interrupted)
+
+                if state == 0 and fluid_aim_fire_queued then
+                    debug_log("[FIRE] eIdle check: wpn_id=" .. tostring(wpn_id) .. " queued=" .. tostring(fluid_aim_fire_queued) .. " jammed=" .. tostring(fluid_aim_jammed) .. " in_jam_table=" .. tostring(fluid_aim_jammed_weapons[wpn_id] == true) .. " prev_state=" .. tostring(fluid_aim_prev_wpn_state) .. " interrupted=" .. tostring(fluid_aim_reload_interrupted) .. " should_fire=" .. tostring(should_fire))
+                end
+
+                if should_fire then
+                    debug_log("[FIRE] trigger FIRING: prev=" .. tostring(fluid_aim_prev_wpn_state) .. " interrupted=" .. tostring(fluid_aim_reload_interrupted) .. " jammed=" .. tostring(fluid_aim_jammed))
+
+                    -- Track ammo before firing to detect if jam blocks the fire action
+                    fluid_aim_ammo_before_fire = wpn:get_ammo_in_magazine()
+                    debug_log("[FIRE] ammo before fire: " .. tostring(fluid_aim_ammo_before_fire))
+
                     level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
                     fluid_aim_fire_queued = false
+                    fluid_aim_reload_interrupted = false
+
+                    -- Schedule multiple checks to catch jam after firing
+                    -- This catches persistent jams from previous sessions that we couldn't detect before firing
+                    local wpn_id_capture = wpn_id  -- Capture in closure
+                    local ammo_at_fire = fluid_aim_ammo_before_fire
+
+                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_0_05_" .. tostring(wpn_id), 0.05, function()
+                        local wpn = db.actor and db.actor:active_item()
+                        if wpn and wpn:id() == wpn_id_capture then
+                            local state_after = wpn:get_state()
+                            local ammo_after = wpn:get_ammo_in_magazine()
+                            debug_log("[FIRE] Post-fire check @0.05s: wpn_id=" .. tostring(wpn_id_capture) .. " state=" .. tostring(state_after) .. " ammo_before=" .. tostring(ammo_at_fire) .. " ammo_after=" .. tostring(ammo_after))
+                            if state_after == 8 then
+                                debug_log("[FIRE] Post-fire jam detected @0.05s: wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
+                                fluid_aim_jammed_weapons[wpn_id_capture] = true
+                            elseif ammo_after == ammo_at_fire then
+                                debug_log("[FIRE] Ammo unchanged @0.05s, fire may be blocked by jam - STORING IN TABLE")
+                                fluid_aim_jammed_weapons[wpn_id_capture] = true
+                            end
+                        else
+                            debug_log("[FIRE] Post-fire check @0.05s: weapon changed or no active wpn")
+                        end
+                        return true
+                    end)
+
+                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_0_1_" .. tostring(wpn_id), 0.1, function()
+                        local wpn = db.actor and db.actor:active_item()
+                        if wpn and wpn:id() == wpn_id_capture then
+                            local state_after = wpn:get_state()
+                            local ammo_after = wpn:get_ammo_in_magazine()
+                            debug_log("[FIRE] Post-fire check @0.1s: wpn_id=" .. tostring(wpn_id_capture) .. " state=" .. tostring(state_after) .. " ammo_before=" .. tostring(ammo_at_fire) .. " ammo_after=" .. tostring(ammo_after))
+                            if state_after == 8 then
+                                debug_log("[FIRE] Post-fire jam detected @0.1s: wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
+                                fluid_aim_jammed_weapons[wpn_id_capture] = true
+                            elseif ammo_after == ammo_at_fire then
+                                debug_log("[FIRE] Ammo unchanged @0.1s, fire may be blocked by jam - STORING IN TABLE")
+                                fluid_aim_jammed_weapons[wpn_id_capture] = true
+                            end
+                        else
+                            debug_log("[FIRE] Post-fire check @0.1s: weapon changed or no active wpn")
+                        end
+                        return true
+                    end)
+
+                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_0_2_" .. tostring(wpn_id), 0.2, function()
+                        local wpn = db.actor and db.actor:active_item()
+                        if wpn and wpn:id() == wpn_id_capture then
+                            local state_after = wpn:get_state()
+                            local ammo_after = wpn:get_ammo_in_magazine()
+                            debug_log("[FIRE] Post-fire check @0.2s: wpn_id=" .. tostring(wpn_id_capture) .. " state=" .. tostring(state_after) .. " ammo_before=" .. tostring(ammo_at_fire) .. " ammo_after=" .. tostring(ammo_after))
+                            if state_after == 8 then
+                                debug_log("[FIRE] Post-fire jam detected @0.2s: wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
+                                fluid_aim_jammed_weapons[wpn_id_capture] = true
+                            elseif ammo_after == ammo_at_fire then
+                                debug_log("[FIRE] Ammo unchanged, weapon may be persistently jammed @0.2s - STORING IN TABLE")
+                                fluid_aim_jammed_weapons[wpn_id_capture] = true
+                            end
+                        else
+                            debug_log("[FIRE] Post-fire check @0.2s: weapon changed or no active wpn")
+                        end
+                        return true
+                    end)
                 end
                 -- Reset queue if fire key released
                 if not fluid_aim_fire then
+                    if fluid_aim_fire_queued then
+                        debug_log("[FIRE] queue cleared: fire key released")
+                    end
                     fluid_aim_fire_queued = false
+                    fluid_aim_reload_interrupted = false
+                end
+                -- Interrupt reload after first shell loads if fire is held (eReload = 7)
+                -- level.press_action misses animation-end checkpoints, so we monitor ammo count instead:
+                -- when ammo increases (shell just loaded), force weapon to eIdle then fire from queue
+                if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load and not fluid_aim_jammed then
+                    if state == 7 then
+                        local cur_ammo = wpn:get_ammo_in_magazine()
+                        debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
+                        if fluid_aim_prev_reload_ammo < 0 then
+                            debug_log("[FIRE] reload tracking start: ammo=" .. tostring(cur_ammo))
+                            fluid_aim_prev_reload_ammo = cur_ammo
+                        elseif cur_ammo > fluid_aim_prev_reload_ammo then
+                            local delta = cur_ammo - fluid_aim_prev_reload_ammo
+                            debug_log("[FIRE] ammo increased: prev=" .. tostring(fluid_aim_prev_reload_ammo) .. " cur=" .. tostring(cur_ammo) .. " delta=" .. tostring(delta))
+                            if delta == 1 then
+                                -- Single shell loaded (pump-action) - interrupt and fire
+                                debug_log("[FIRE] pump-action interrupt: switch_state(0)")
+                                fluid_aim_fire_queued = true
+                                fluid_aim_reload_interrupted = true
+                                fluid_aim_prev_reload_ammo = -1
+                                wpn:switch_state(0)
+                            else
+                                -- Full magazine inserted - let reload animation finish, fire on completion
+                                debug_log("[FIRE] magazine reload: queuing fire on completion")
+                                fluid_aim_prev_reload_ammo = cur_ammo
+                                fluid_aim_fire_queued = true
+                            end
+                        end
+                    else
+                        if fluid_aim_prev_reload_ammo >= 0 then
+                            debug_log("[FRAME] left eReload state (was tracking ammo), reset: prev_state=" .. tostring(fluid_aim_prev_wpn_state))
+                        end
+                        fluid_aim_prev_reload_ammo = -1
+                    end
+                else
+                    if state == 7 then
+                        debug_log("[FRAME] eReload but not tracking: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
+                    end
+                    fluid_aim_prev_reload_ammo = -1
                 end
             end
         end
         fluid_aim_prev_wpn_state = state
+        -- Increment weapon frame counter at end of update
+        fluid_aim_weapon_frame_count = fluid_aim_weapon_frame_count + 1
     end
     wpn = nil
 end
@@ -211,15 +431,24 @@ end
 -- Weapon Jammed to prevent jam sound when aiming and shooting
 local function actor_on_weapon_jammed()
     fluid_aim_jammed = true
+    local wpn = db.actor and db.actor:active_item()
+    if wpn then
+        debug_log("[JAM] actor_on_weapon_jammed callback FIRED: wpn_id=" .. tostring(wpn:id()))
+        fluid_aim_jammed_weapons[wpn:id()] = true
+    else
+        debug_log("[JAM] actor_on_weapon_jammed callback FIRED: no active weapon")
+    end
 end
 
 -- Key press to prevent toggle aim release from aiming instantly again
 local function on_key_press(key)
     if (key == bind_to_dik(key_bindings.kWPN_FIRE)) then
+        debug_log("[KEY] FIRE pressed: reset_fire_on_load=true -> false")
         fluid_aim_reset_fire_on_load = false
     end
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
         if ui_options.get("control/general/aim_toggle") and axr_main.weapon_is_zoomed and not is_holdortoggle_managing_aim() then
+            debug_log("[KEY] ZOOM pressed (already zoomed)")
             fluid_aim_toggle = true
         end
     end
@@ -227,8 +456,12 @@ end
 
 -- Key release to reset toggle aim release
 local function on_key_release(key)
+    if (key == bind_to_dik(key_bindings.kWPN_FIRE)) then
+        debug_log("[KEY] FIRE released: reset_fire_on_load=false -> true")
+    end
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
         if ui_options.get("control/general/aim_toggle") and not is_holdortoggle_managing_aim() then
+            debug_log("[KEY] ZOOM released")
             fluid_aim_toggle = false
         end
     end
