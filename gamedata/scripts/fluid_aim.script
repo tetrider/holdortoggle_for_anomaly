@@ -9,6 +9,8 @@ local fluid_aim_switch_weapon = false
 local fluid_aim_toggle = false
 local fluid_aim_reset_fire_on_load = true
 local prev_fluid_aim_aim = false
+local fluid_aim_fire_queued = false
+local fluid_aim_prev_wpn_state = 0
 
 local function debug_log(msg)
     if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
@@ -63,14 +65,6 @@ local function should_aim_be_active()
 end
 
 -- TimeEvents
--- Attempt to fire
-local function fluid_aim_delay_fire_func()
-    if fluid_aim_fire then
-        level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
-    end
-    return true
-end
-
 -- Attempt to aim
 local function fluid_aim_delay_aim_func()
     local active = should_aim_be_active()
@@ -181,14 +175,24 @@ local function actor_on_update()
                     end
                 end
                 
-                -- Shoot weapon logic (rapid aim)
+                -- Queue shot if fire is held during weapon-raise animation (eShowing = 1)
                 if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load then
-                    if not fluid_aim_jammed and (game.actor_weapon_lowered() or not (state == 2 or state == 3 or state == 5)) then
-                        CreateTimeEvent("fluid_aim_delay_fire", "fluid_aim_delay_fire", 0, fluid_aim_delay_fire_func)
+                    if not fluid_aim_jammed and state == 1 then
+                        fluid_aim_fire_queued = true
                     end
+                end
+                -- Fire exactly once when weapon finishes raising (eShowing -> eIdle)
+                if fluid_aim_fire_queued and state == 0 and fluid_aim_prev_wpn_state == 1 then
+                    level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
+                    fluid_aim_fire_queued = false
+                end
+                -- Reset queue if fire key released
+                if not fluid_aim_fire then
+                    fluid_aim_fire_queued = false
                 end
             end
         end
+        fluid_aim_prev_wpn_state = state
     end
     wpn = nil
 end
