@@ -8,6 +8,11 @@ local fluid_aim_jammed = false
 local fluid_aim_switch_weapon = false
 local fluid_aim_toggle = false
 local fluid_aim_reset_fire_on_load = true
+local prev_fluid_aim_aim = false
+
+local function debug_log(msg)
+    if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
+end
 
 -- Rapid aim settings
 local rapid_aim_enabled = false
@@ -46,6 +51,7 @@ local function should_aim_be_active()
     if hot_aim == 2 then
         if holdortoggle_state.aim_key_down then
             if axr_main.weapon_is_zoomed then
+                debug_log("[FLUID_AIM] should_aim_be_active: clearing aim_key_down (zoomed)")
                 holdortoggle_state.aim_key_down = false
             end
             return true
@@ -67,8 +73,11 @@ end
 
 -- Attempt to aim
 local function fluid_aim_delay_aim_func()
-    if fluid_aim_aim and should_aim_be_active() then
+    local active = should_aim_be_active()
+    debug_log("[FLUID_AIM] delay_aim: aim=" .. tostring(fluid_aim_aim) .. " active=" .. tostring(active) .. " zoomed=" .. tostring(axr_main.weapon_is_zoomed))
+    if fluid_aim_aim and active then
         level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+        debug_log("[FLUID_AIM] delay_aim: zoom pressed")
     end
     return true
 end
@@ -114,8 +123,8 @@ local function actor_on_update()
         if hot_aim == 0 then
             fluid_aim_aim = holdortoggle_state.aim_key_down
         elseif hot_aim == 2 then
-            -- Only aim if: tapped (aim_key_down and not holding_aim) OR currently holding (holding_aim)
-            fluid_aim_aim = holdortoggle_state.aim_key_down and not holdortoggle_state.holding_aim
+            -- Aim if tapped (aim_key_down before threshold) OR if holding past threshold (holding_aim)
+            fluid_aim_aim = holdortoggle_state.holding_aim or holdortoggle_state.aim_key_down
         end
     elseif ui_options.get("control/general/aim_toggle") then
         if not (fluid_aim_toggle) then
@@ -123,6 +132,11 @@ local function actor_on_update()
         end
     else
         fluid_aim_aim = key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0
+    end
+
+    if fluid_aim_aim ~= prev_fluid_aim_aim then
+        debug_log("[FLUID_AIM] aim flag: " .. tostring(prev_fluid_aim_aim) .. " -> " .. tostring(fluid_aim_aim))
+        prev_fluid_aim_aim = fluid_aim_aim
     end
 
     -- Check if it's a weapon or binocular
@@ -162,6 +176,7 @@ local function actor_on_update()
                 -- Aim weapon logic
                 if fluid_aim_aim and should_aim_be_active() then
                     if not (axr_main.weapon_is_zoomed) and (game.actor_weapon_lowered() or not (state == 2 or state == 3 or state == 5)) then
+                        debug_log("[FLUID_AIM] scheduling aim: wpn_state=" .. tostring(state) .. " lowered=" .. tostring(game.actor_weapon_lowered()))
                         CreateTimeEvent("fluid_aim_delay_aim", "fluid_aim_delay_aim", 0, fluid_aim_delay_aim_func)
                     end
                 end

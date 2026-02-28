@@ -7,12 +7,16 @@ local stance_utils = holdortoggle_stance_utils
 
 local hot_aim = 0
 local hot_sprint = 0
+-- Tracks whether we disabled wpn_aim_toggle (ui_options.get is unreliable for console vars)
+local aim_toggle_disabled = false
 
 function update_options()
     if ui_mcm then
         hot_aim = ui_mcm.get("mcm/holdortoggle/main/hot_aim")
         hot_sprint = ui_mcm.get("mcm/holdortoggle/main/hot_sprint")
     end
+    -- config.on_option_change forces wpn_aim_toggle on, so sync our tracking var
+    aim_toggle_disabled = false
 end
 
 function on_before_key_press(dik, bind, dis, flags)
@@ -21,25 +25,35 @@ end
 
 function on_key_press(key)
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
+        utils.debug_log("[AIM] key_press: hot_aim=" .. tostring(hot_aim) .. " is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
         if hot_aim == 0 then
             state.holding_aim = true
             state.aim_key_down = true
-            -- Disable wpn_zoom_toggle to prevent engine toggle behavior in Hold mode
-            get_console():execute("wpn_zoom_toggle off")
+            -- Disable wpn_aim_toggle to prevent engine toggle behavior in Hold mode
+            get_console():execute("wpn_aim_toggle off")
+            aim_toggle_disabled = true
+            utils.debug_log("[AIM] key_press: Hold mode - aim_key_down=true, wpn_aim_toggle=off")
             -- Safety: restore toggle after 5s if something goes wrong
             CreateTimeEvent("holdortoggle_aim_safety", "check", 50.0, function()
-                if (hot_aim == 0 or hot_aim == 2) and not state.holding_aim and not ui_options.get("control/general/aim_toggle") then
-                    get_console():execute("wpn_zoom_toggle on")
+                if (hot_aim == 0 or hot_aim == 2) and not state.holding_aim and aim_toggle_disabled then
+                    get_console():execute("wpn_aim_toggle on")
+                    aim_toggle_disabled = false
                 end
                 return true
             end)
         elseif hot_aim == 2 then
             if axr_main.weapon_is_zoomed then
+                utils.debug_log("[AIM] key_press: Hold+Toggle mode - already zoomed, clearing flags")
                 state.aim_key_down = false
                 state.holding_aim = false
             else
+                RemoveTimeEvent("holdortoggle_aim_tap", "clear")
                 state.aim_key_down = true
-                state.holding_aim = false
+                -- Do NOT clear holding_aim here: OS key-repeat fires on_key_press again
+                -- while the key is still held. If key_hold already set holding_aim=true,
+                -- clearing it here causes key_release to take the tap path and skip
+                -- restoring wpn_aim_toggle.
+                utils.debug_log("[AIM] key_press: Hold+Toggle mode - aim_key_down=true holding_aim=" .. tostring(state.holding_aim))
             end
         end
     end
@@ -49,18 +63,24 @@ function on_key_hold(key)
     local is_modifier = utils.is_modifier_key(key)
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) and ui_mcm.key_hold("holdortoggle", key) then
         if hot_aim == 2 then
+            -- Guard: key_hold fires from a timer; if the key was already released, ignore it
+            if key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) == 0 then
+                utils.debug_log("[AIM] key_hold: threshold fired but key already released - ignoring")
+                return
+            end
             state.holding_aim = true
-            -- CRITICAL FIX: Disable wpn_zoom_toggle when hold threshold is passed
-            -- This prevents the engine from processing the toggle action during weapon equip animations
-            -- Without this, holding aim during weapon equip from empty hands would still toggle aim on
-            -- because the engine processes the toggle before we can cancel it on release.
-            -- By disabling toggle here, we ensure only our hold-to-aim logic runs.
+            utils.debug_log("[AIM] key_hold: threshold reached - holding_aim=true, is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
+            -- Disable wpn_aim_toggle when hold threshold is passed so engine doesn't
+            -- process the toggle action during weapon equip animations.
             -- Toggle is re-enabled in on_key_release when holding_aim is true.
-            get_console():execute("wpn_zoom_toggle off")
+            get_console():execute("wpn_aim_toggle off")
+            aim_toggle_disabled = true
+            utils.debug_log("[AIM] key_hold: wpn_aim_toggle=off")
             -- Safety: restore toggle after 5s if something goes wrong
             CreateTimeEvent("holdortoggle_aim_safety", "check", 50.0, function()
-                if (hot_aim == 0 or hot_aim == 2) and not state.holding_aim and not ui_options.get("control/general/aim_toggle") then
-                    get_console():execute("wpn_zoom_toggle on")
+                if (hot_aim == 0 or hot_aim == 2) and not state.holding_aim and aim_toggle_disabled then
+                    get_console():execute("wpn_aim_toggle on")
+                    aim_toggle_disabled = false
                 end
                 return true
             end)
@@ -74,20 +94,28 @@ function on_key_release(key)
         local aim_was_held = state.holding_aim
 
         if hot_aim == 0 then
+            utils.debug_log("[AIM] key_release: Hold mode - holding_aim=" .. tostring(state.holding_aim) .. " is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
             -- Re-enable toggle (was disabled in on_key_press)
             RemoveTimeEvent("holdortoggle_aim_safety", "check")
-            get_console():execute("wpn_zoom_toggle on")
+            get_console():execute("wpn_aim_toggle on")
+            aim_toggle_disabled = false
+            utils.debug_log("[AIM] key_release: Hold mode - wpn_aim_toggle=on")
             if state.holding_aim and axr_main.weapon_is_zoomed then
+                utils.debug_log("[AIM] key_release: Hold mode - pressing zoom to deactivate")
                 level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
             end
             state.holding_aim = false
             state.aim_key_down = false
         elseif hot_aim == 2 then
+            utils.debug_log("[AIM] key_release: Hold+Toggle mode - holding_aim=" .. tostring(state.holding_aim) .. " is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
             if state.holding_aim then
                 -- Re-enable toggle (was disabled in on_key_hold)
                 RemoveTimeEvent("holdortoggle_aim_safety", "check")
-                get_console():execute("wpn_zoom_toggle on")
+                get_console():execute("wpn_aim_toggle on")
+                aim_toggle_disabled = false
+                utils.debug_log("[AIM] key_release: Hold+Toggle mode - wpn_aim_toggle=on")
                 if axr_main.weapon_is_zoomed then
+                    utils.debug_log("[AIM] key_release: Hold+Toggle mode - pressing zoom to deactivate")
                     level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
                 end
                 state.holding_aim = false
@@ -95,11 +123,14 @@ function on_key_release(key)
             else
                 state.holding_aim = false
                 if not axr_main.weapon_is_zoomed then
+                    utils.debug_log("[AIM] key_release: Hold+Toggle tap - keeping aim_key_down for 2s")
                     CreateTimeEvent("holdortoggle_aim_tap", "clear", 2.0, function()
+                        utils.debug_log("[AIM] aim_key_down 2s timer fired - clearing")
                         state.aim_key_down = false
                         return true
                     end)
                 else
+                    utils.debug_log("[AIM] key_release: Hold+Toggle tap - clearing aim_key_down (still zoomed)")
                     state.aim_key_down = false
                 end
             end
