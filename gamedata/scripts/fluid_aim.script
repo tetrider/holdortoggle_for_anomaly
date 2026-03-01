@@ -151,6 +151,15 @@ local function actor_on_update()
         local wpn_id = wpn:id()
         if wpn_id ~= fluid_aim_current_wpn_id then
             local inherited_jam = fluid_aim_jammed_weapons[wpn_id] == true
+            -- If arti_jamming is available, verify weapon is actually still jammed in engine
+            if inherited_jam and arti_jamming and arti_jamming.get_jammed then
+                if not arti_jamming.get_jammed(wpn_id) then
+                    -- Engine says it's not jammed, clear from our table
+                    fluid_aim_jammed_weapons[wpn_id] = nil
+                    inherited_jam = false
+                    debug_log("[FIRE] weapon changed: id=" .. tostring(wpn_id) .. " was in table but engine says unjammed - CLEARED")
+                end
+            end
             debug_log("[FIRE] weapon changed: id=" .. tostring(wpn_id) .. " inherited_jam=" .. tostring(inherited_jam) .. " prev_queue=" .. tostring(fluid_aim_fire_queued) .. " prev_state=" .. tostring(fluid_aim_prev_wpn_state))
             fluid_aim_current_wpn_id = wpn_id
             -- Inherit this weapon's known jam state so we don't fire into a previously-jammed weapon
