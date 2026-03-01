@@ -546,7 +546,7 @@ local function actor_on_update()
                     fluid_aim_single_fire_requeue_used = false  -- Reset re-queue flag when button released
                     -- Mark that button was released after firing (allows re-fire on press+hold)
                     -- This enables tap+release+hold pattern for single-fire weapons
-                    if fluid_aim_just_fired or (wpn and wpn:get_ammo_in_magazine() < 7) then
+                    if fluid_aim_just_fired then
                         fluid_aim_button_released_after_fire = true
                         fluid_aim_button_released_since_fire = true  -- Track that button was released since last fire
                         debug_log("[FIRE] Button released after fire - allowing re-fire on next press")
@@ -645,10 +645,13 @@ local function actor_on_update()
                     mag_reload_cancel_ready[wpn_id] = nil
                 end
 
-                -- Reset tracking when exiting reload state
-                if state ~= 7 and mag_reload_prev_ammo[wpn_id] then
-                    debug_log("[MAG_CANCEL] left eReload state: wpn_id=" .. tostring(wpn_id))
+                -- Reset tracking when exiting reload state (always clear both tracking and ready flags)
+                if state ~= 7 then
+                    if mag_reload_prev_ammo[wpn_id] or mag_reload_cancel_ready[wpn_id] then
+                        debug_log("[MAG_CANCEL] left eReload state: wpn_id=" .. tostring(wpn_id))
+                    end
                     mag_reload_prev_ammo[wpn_id] = nil
+                    mag_reload_cancel_ready[wpn_id] = nil
                 end
 
                 -- Pump-action reload animation cancel (with adjustable delay)
@@ -689,10 +692,13 @@ local function actor_on_update()
                     pump_reload_cancel_ready[wpn_id] = nil
                 end
 
-                -- Reset tracking when exiting reload state
-                if state ~= 7 and pump_reload_prev_ammo[wpn_id] then
-                    debug_log("[PUMP_CANCEL] left eReload state: wpn_id=" .. tostring(wpn_id))
+                -- Reset tracking when exiting reload state (always clear both tracking and ready flags)
+                if state ~= 7 then
+                    if pump_reload_prev_ammo[wpn_id] or pump_reload_cancel_ready[wpn_id] then
+                        debug_log("[PUMP_CANCEL] left eReload state: wpn_id=" .. tostring(wpn_id))
+                    end
                     pump_reload_prev_ammo[wpn_id] = nil
+                    pump_reload_cancel_ready[wpn_id] = nil
                 end
 
             end
