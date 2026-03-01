@@ -26,6 +26,15 @@ end
 function on_key_press(key)
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
         utils.debug_log("[AIM] key_press: hot_aim=" .. tostring(hot_aim) .. " is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
+
+        -- Pump-action reload interrupt: If in reload state, signal to wait for shell load then aim
+        local wpn = db.actor and db.actor:active_item()
+        if wpn and IsWeapon(wpn) and wpn:get_state() == 7 then
+            utils.debug_log("[AIM] Aim pressed during pump-action reload, waiting for shell load")
+            if _G.fluid_aim_request_aim_interrupt then
+                _G.fluid_aim_request_aim_interrupt()
+            end
+        end
         if hot_aim == 0 then
             state.holding_aim = true
             state.aim_key_down = true

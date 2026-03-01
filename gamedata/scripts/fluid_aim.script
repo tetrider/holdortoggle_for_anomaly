@@ -15,6 +15,7 @@ local fluid_aim_prev_reload_ammo = -1
 local fluid_aim_current_wpn_id = nil
 local fluid_aim_jammed_weapons = {}   -- weapon IDs known to be jammed, survives weapon switches
 local fluid_aim_reload_interrupted = false  -- set when pump-action reload is force-interrupted
+local fluid_aim_interrupt_with_aim = false  -- set when aim button pressed during reload (wait for shell, then aim)
 local fluid_aim_weapon_frame_count = 0  -- frames weapon has been active (resets on switch)
 local fluid_aim_ammo_before_fire = -1  -- tracks ammo before attempting fire
 local fluid_aim_last_fire_ammo = -1  -- tracks ammo when entering state 5 (eFire) to detect silent jams
@@ -38,6 +39,11 @@ local function is_weapon_jammed(wpn_id)
     local table_jam_status = fluid_aim_jammed_weapons[wpn_id] == true
     debug_log("[JAM_CHECK] fallback to table: wpn_id=" .. tostring(wpn_id) .. " jammed=" .. tostring(table_jam_status))
     return table_jam_status
+end
+
+-- Global function for Hold or Toggle aim script to signal aim interrupt during reload
+function _G.fluid_aim_request_aim_interrupt()
+    fluid_aim_interrupt_with_aim = true
 end
 
 -- Rapid aim settings
@@ -377,10 +383,10 @@ local function actor_on_update()
                     fluid_aim_fire_queued = false
                     fluid_aim_reload_interrupted = false
                 end
-                -- Interrupt reload after first shell loads if fire is held (eReload = 7)
+                -- Interrupt reload after first shell loads if fire/aim is held (eReload = 7)
                 -- level.press_action misses animation-end checkpoints, so we monitor ammo count instead:
-                -- when ammo increases (shell just loaded), force weapon to eIdle then fire from queue
-                if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load and not is_weapon_jammed(wpn_id) then
+                -- when ammo increases (shell just loaded), force weapon to eIdle then fire/aim
+                if rapid_aim_enabled and (fluid_aim_fire or fluid_aim_interrupt_with_aim) and not fluid_aim_reset_fire_on_load and not is_weapon_jammed(wpn_id) then
                     if state == 7 then
                         local cur_ammo = wpn:get_ammo_in_magazine()
                         debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
@@ -391,12 +397,20 @@ local function actor_on_update()
                             local delta = cur_ammo - fluid_aim_prev_reload_ammo
                             debug_log("[FIRE] ammo increased: prev=" .. tostring(fluid_aim_prev_reload_ammo) .. " cur=" .. tostring(cur_ammo) .. " delta=" .. tostring(delta))
                             if delta == 1 then
-                                -- Single shell loaded (pump-action) - interrupt and fire
-                                debug_log("[FIRE] pump-action interrupt: switch_state(0)")
-                                fluid_aim_fire_queued = true
-                                fluid_aim_reload_interrupted = true
+                                -- Single shell loaded (pump-action)
+                                if fluid_aim_interrupt_with_aim then
+                                    -- Aim button interrupt: exit reload and transition to aim
+                                    debug_log("[AIM] pump-action interrupt with aim: switch_state(0)")
+                                    fluid_aim_interrupt_with_aim = false
+                                    wpn:switch_state(0)
+                                else
+                                    -- Fire button interrupt: queue fire
+                                    debug_log("[FIRE] pump-action interrupt: switch_state(0)")
+                                    fluid_aim_fire_queued = true
+                                    fluid_aim_reload_interrupted = true
+                                    wpn:switch_state(0)
+                                end
                                 fluid_aim_prev_reload_ammo = -1
-                                wpn:switch_state(0)
                             else
                                 -- Full magazine inserted - let reload animation finish, fire on completion
                                 debug_log("[FIRE] magazine reload: queuing fire on completion")
@@ -415,6 +429,7 @@ local function actor_on_update()
                             debug_log("[FRAME] left eReload state (was tracking ammo), reset: prev_state=" .. tostring(fluid_aim_prev_wpn_state))
                         end
                         fluid_aim_prev_reload_ammo = -1
+                        fluid_aim_interrupt_with_aim = false  -- Clear aim interrupt flag if reload exited
                     end
                 else
                     if state == 7 then
