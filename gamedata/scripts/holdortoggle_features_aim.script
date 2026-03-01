@@ -29,10 +29,26 @@ function on_key_press(key)
 
         -- Pump-action reload interrupt: If in reload state, signal to wait for shell load then aim
         local wpn = db.actor and db.actor:active_item()
-        if wpn and IsWeapon(wpn) and wpn:get_state() == 7 then
-            utils.debug_log("[AIM] Aim pressed during pump-action reload, waiting for shell load")
-            if _G.fluid_aim_request_aim_interrupt then
-                _G.fluid_aim_request_aim_interrupt()
+        if wpn and IsWeapon(wpn) then
+            -- Check if in unjam grace period - block aim to prevent animation cancel
+            if _G.is_in_unjam_grace_period and _G.is_in_unjam_grace_period(wpn:id()) then
+                utils.debug_log("[AIM] Aim pressed during unjam grace period - blocking and re-jamming: wpn_id=" .. tostring(wpn:id()))
+                -- Re-jam weapon to prevent unjam cancel via aim key
+                if _G.arti_jamming and _G.arti_jamming.set_jam_status then
+                    local wpn_id = wpn:id()
+                    local original_status = _G.fluid_aim_prev_arti_jam_status and _G.fluid_aim_prev_arti_jam_status[wpn_id]
+                    local jam_status = original_status or 2
+                    _G.arti_jamming.set_jam_status(wpn_id, jam_status)
+                    utils.debug_log("[AIM] Re-jammed weapon (aim block): wpn_id=" .. tostring(wpn_id) .. " status=" .. tostring(jam_status))
+                end
+                return
+            end
+
+            if wpn:get_state() == 7 then
+                utils.debug_log("[AIM] Aim pressed during pump-action reload, waiting for shell load")
+                if _G.fluid_aim_request_aim_interrupt then
+                    _G.fluid_aim_request_aim_interrupt()
+                end
             end
         end
         if hot_aim == 0 then
@@ -77,6 +93,22 @@ function on_key_hold(key)
                 utils.debug_log("[AIM] key_hold: threshold fired but key already released - ignoring")
                 return
             end
+
+            -- Check if in unjam grace period - block aim to prevent animation cancel
+            local wpn = db.actor and db.actor:active_item()
+            if wpn and IsWeapon(wpn) and _G.is_in_unjam_grace_period and _G.is_in_unjam_grace_period(wpn:id()) then
+                utils.debug_log("[AIM] Aim hold threshold reached during unjam grace period - blocking and re-jamming: wpn_id=" .. tostring(wpn:id()))
+                -- Re-jam weapon to prevent unjam cancel via aim key
+                if _G.arti_jamming and _G.arti_jamming.set_jam_status then
+                    local wpn_id = wpn:id()
+                    local original_status = _G.fluid_aim_prev_arti_jam_status and _G.fluid_aim_prev_arti_jam_status[wpn_id]
+                    local jam_status = original_status or 2
+                    _G.arti_jamming.set_jam_status(wpn_id, jam_status)
+                    utils.debug_log("[AIM] Re-jammed weapon (aim hold block): wpn_id=" .. tostring(wpn_id) .. " status=" .. tostring(jam_status))
+                end
+                return
+            end
+
             state.holding_aim = true
             utils.debug_log("[AIM] key_hold: threshold reached - holding_aim=true, is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
             -- Disable wpn_aim_toggle when hold threshold is passed so engine doesn't

@@ -57,6 +57,13 @@ function _G.fluid_aim_request_aim_interrupt()
     fluid_aim_interrupt_with_aim = true
 end
 
+-- Global exports for holdortoggle_features_aim to check grace period and access jam status
+function _G.is_in_unjam_grace_period(wpn_id)
+    return is_in_unjam_grace_period(wpn_id)
+end
+
+_G.fluid_aim_prev_arti_jam_status = fluid_aim_prev_arti_jam_status
+
 -- Rapid aim settings
 local rapid_aim_enabled = false
 local rapid_aim_pistol_delay = 0.1
