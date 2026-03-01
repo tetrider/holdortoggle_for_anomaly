@@ -24,6 +24,22 @@ local function debug_log(msg)
     if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
 end
 
+-- Helper function to check if weapon is jammed (with arti_jamming fallback)
+-- Returns: true if weapon is jammed, false otherwise
+local function is_weapon_jammed(wpn_id)
+    -- Priority 1: Check arti_jamming module if available
+    if arti_jamming and arti_jamming.get_jammed then
+        local arti_jam_status = arti_jamming.get_jammed(wpn_id)
+        debug_log("[JAM_CHECK] arti_jamming.get_jammed(" .. tostring(wpn_id) .. ") = " .. tostring(arti_jam_status))
+        return arti_jam_status
+    end
+
+    -- Fallback: Use our local jam table
+    local table_jam_status = fluid_aim_jammed_weapons[wpn_id] == true
+    debug_log("[JAM_CHECK] fallback to table: wpn_id=" .. tostring(wpn_id) .. " jammed=" .. tostring(table_jam_status))
+    return table_jam_status
+end
+
 -- Rapid aim settings
 local rapid_aim_enabled = false
 local rapid_aim_pistol_delay = 0.1
@@ -270,13 +286,15 @@ local function actor_on_update()
                 
                 -- Queue shot if fire is held during weapon-raise animation (eShowing = 1)
                 if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load then
-                    if not fluid_aim_jammed and state == 1 then
+                    -- Check actual jam status from arti_jamming or fallback to table
+                    local wpn_actually_jammed = is_weapon_jammed(wpn_id)
+                    if not wpn_actually_jammed and state == 1 then
                         if not fluid_aim_fire_queued then
-                            debug_log("[FIRE] queue set: eShowing jammed=" .. tostring(fluid_aim_jammed) .. " rapid_enabled=" .. tostring(rapid_aim_enabled))
+                            debug_log("[FIRE] queue set: eShowing jammed=" .. tostring(wpn_actually_jammed) .. " rapid_enabled=" .. tostring(rapid_aim_enabled))
                         end
                         fluid_aim_fire_queued = true
-                    elseif state == 1 and fluid_aim_jammed then
-                        debug_log("[FIRE] NOT queueing (state=1 but jammed): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
+                    elseif state == 1 and wpn_actually_jammed then
+                        debug_log("[FIRE] NOT queueing (state=1 but jammed): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(wpn_actually_jammed))
                     end
                 end
                 -- Clear fire queue if weapon is currently jammed (eMisfire = 8)
@@ -313,55 +331,35 @@ local function actor_on_update()
                     local wpn_id_capture = wpn_id  -- Capture in closure
                     local ammo_at_fire = fluid_aim_ammo_before_fire
 
-                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_0_05_" .. tostring(wpn_id), 0.05, function()
-                        local wpn = db.actor and db.actor:active_item()
-                        if wpn and wpn:id() == wpn_id_capture then
-                            local state_after = wpn:get_state()
-                            local ammo_after = wpn:get_ammo_in_magazine()
-                            debug_log("[FIRE] Post-fire check @0.05s: wpn_id=" .. tostring(wpn_id_capture) .. " state=" .. tostring(state_after) .. " ammo_before=" .. tostring(ammo_at_fire) .. " ammo_after=" .. tostring(ammo_after))
-                            if state_after == 8 then
-                                debug_log("[FIRE] Post-fire jam detected @0.05s: wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
-                                fluid_aim_jammed_weapons[wpn_id_capture] = true
-                            elseif ammo_after == ammo_at_fire then
-                                debug_log("[FIRE] Ammo unchanged @0.05s, fire may be blocked by jam - STORING IN TABLE")
-                                fluid_aim_jammed_weapons[wpn_id_capture] = true
-                            end
-                        else
-                            debug_log("[FIRE] Post-fire check @0.05s: weapon changed or no active wpn")
-                        end
-                        return true
-                    end)
-
-                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_0_1_" .. tostring(wpn_id), 0.1, function()
-                        local wpn = db.actor and db.actor:active_item()
-                        if wpn and wpn:id() == wpn_id_capture then
-                            local state_after = wpn:get_state()
-                            local ammo_after = wpn:get_ammo_in_magazine()
-                            debug_log("[FIRE] Post-fire check @0.1s: wpn_id=" .. tostring(wpn_id_capture) .. " state=" .. tostring(state_after) .. " ammo_before=" .. tostring(ammo_at_fire) .. " ammo_after=" .. tostring(ammo_after))
-                            if state_after == 8 then
-                                debug_log("[FIRE] Post-fire jam detected @0.1s: wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
-                                fluid_aim_jammed_weapons[wpn_id_capture] = true
-                            elseif ammo_after == ammo_at_fire then
-                                debug_log("[FIRE] Ammo unchanged @0.1s, fire may be blocked by jam - STORING IN TABLE")
-                                fluid_aim_jammed_weapons[wpn_id_capture] = true
-                            end
-                        else
-                            debug_log("[FIRE] Post-fire check @0.1s: weapon changed or no active wpn")
-                        end
-                        return true
-                    end)
-
-                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_0_2_" .. tostring(wpn_id), 0.2, function()
+                    -- Single post-fire jam check at 0.2s (most reliable - weapon settled)
+                    CreateTimeEvent("fluid_aim_jam_check", "jam_check_" .. tostring(wpn_id), 0.2, function()
                         local wpn = db.actor and db.actor:active_item()
                         if wpn and wpn:id() == wpn_id_capture then
                             local state_after = wpn:get_state()
                             local ammo_after = wpn:get_ammo_in_magazine()
                             debug_log("[FIRE] Post-fire check @0.2s: wpn_id=" .. tostring(wpn_id_capture) .. " state=" .. tostring(state_after) .. " ammo_before=" .. tostring(ammo_at_fire) .. " ammo_after=" .. tostring(ammo_after))
-                            if state_after == 8 then
-                                debug_log("[FIRE] Post-fire jam detected @0.2s: wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
-                                fluid_aim_jammed_weapons[wpn_id_capture] = true
-                            elseif ammo_after == ammo_at_fire then
-                                debug_log("[FIRE] Ammo unchanged, weapon may be persistently jammed @0.2s - STORING IN TABLE")
+
+                            -- Priority 1: Check arti_jamming if available
+                            local jam_detected = false
+                            if arti_jamming and arti_jamming.get_jammed then
+                                if arti_jamming.get_jammed(wpn_id_capture) then
+                                    debug_log("[FIRE] Post-fire jam detected @0.2s (arti_jamming): wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
+                                    jam_detected = true
+                                end
+                            end
+
+                            -- Fallback: Check state or ammo if arti_jamming unavailable
+                            if not jam_detected then
+                                if state_after == 8 then
+                                    debug_log("[FIRE] Post-fire jam detected @0.2s (state==8): wpn_id=" .. tostring(wpn_id_capture) .. " - STORED")
+                                    jam_detected = true
+                                elseif ammo_after == ammo_at_fire then
+                                    debug_log("[FIRE] Ammo unchanged, weapon may be persistently jammed @0.2s (fallback) - STORING IN TABLE")
+                                    jam_detected = true
+                                end
+                            end
+
+                            if jam_detected then
                                 fluid_aim_jammed_weapons[wpn_id_capture] = true
                             end
                         else
