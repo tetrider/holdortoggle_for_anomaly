@@ -20,6 +20,8 @@ local fluid_aim_weapon_frame_count = 0  -- frames weapon has been active (resets
 local fluid_aim_ammo_before_fire = -1  -- tracks ammo before attempting fire
 local fluid_aim_last_fire_ammo = -1  -- tracks ammo when entering state 5 (eFire) to detect silent jams
 local fluid_aim_fire_blocked_frames = 0  -- counts frames where fire is pressed but weapon stays in state 0
+local fluid_aim_unjam_grace_active = {}  -- tracks if grace period is active for each weapon (wpn_id -> true)
+local fluid_aim_prev_arti_jam_status = {}  -- tracks previous arti_jamming jam status per weapon, detects unjam events
 
 local function debug_log(msg)
     if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
@@ -39,6 +41,15 @@ local function is_weapon_jammed(wpn_id)
     local table_jam_status = fluid_aim_jammed_weapons[wpn_id] == true
     debug_log("[JAM_CHECK] fallback to table: wpn_id=" .. tostring(wpn_id) .. " jammed=" .. tostring(table_jam_status))
     return table_jam_status
+end
+
+-- Helper function to check if weapon is in unjam grace period (prevents fire during unjam animation)
+-- Grace period is tracked via TimeEvent, not game time calculation
+-- Returns: true if still in grace period, false otherwise
+local function is_in_unjam_grace_period(wpn_id)
+    local in_grace = fluid_aim_unjam_grace_active[wpn_id] == true
+    debug_log("[GRACE_CHECK] wpn_id=" .. tostring(wpn_id) .. " in_grace=" .. tostring(in_grace))
+    return in_grace
 end
 
 -- Global function for Hold or Toggle aim script to signal aim interrupt during reload
@@ -168,9 +179,33 @@ local function actor_on_update()
     local is_weapon = wpn and (IsWeapon(wpn) or SYS_GetParam(0,wpn:section(),"class") == "WP_BINOC") or false
     if (is_weapon) then
         local state = wpn:get_state()
+        local wpn_id = wpn:id()
+
+        -- Detect unjam events from arti_jamming directly (handles unjam animation start)
+        -- This catches unjam events regardless of weapon state transitions
+        if arti_jamming and arti_jamming.get_jammed then
+            local current_arti_jam = arti_jamming.get_jammed(wpn_id)
+            local prev_arti_jam = fluid_aim_prev_arti_jam_status[wpn_id]
+
+            -- Detect transition from jammed (prev truthy) to unjammed (current falsy: 0, nil, false)
+            -- This catches both "return 0" and "weapon removed from table (nil)" cases
+            if prev_arti_jam and not current_arti_jam then
+                -- Unjam event detected! Start grace period via TimeEvent (1.5 seconds)
+                fluid_aim_unjam_grace_active[wpn_id] = true
+                local wpn_id_capture = wpn_id  -- Capture in closure
+                debug_log("[UNJAM] unjam event detected from arti_jamming: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_arti_jam) .. " curr=" .. tostring(current_arti_jam) .. " starting grace period")
+
+                CreateTimeEvent("fluid_aim_grace", "grace_" .. tostring(wpn_id), 1.5, function()
+                    fluid_aim_unjam_grace_active[wpn_id_capture] = nil
+                    debug_log("[UNJAM] Grace period expired: wpn_id=" .. tostring(wpn_id_capture))
+                    return true
+                end)
+            end
+
+            fluid_aim_prev_arti_jam_status[wpn_id] = current_arti_jam
+        end
 
         -- Reset all per-weapon state when active weapon changes
-        local wpn_id = wpn:id()
         if wpn_id ~= fluid_aim_current_wpn_id then
             local inherited_jam = fluid_aim_jammed_weapons[wpn_id] == true
             -- If arti_jamming is available, verify weapon is actually still jammed in engine
@@ -183,6 +218,11 @@ local function actor_on_update()
                 end
             end
             debug_log("[FIRE] weapon changed: id=" .. tostring(wpn_id) .. " inherited_jam=" .. tostring(inherited_jam) .. " prev_queue=" .. tostring(fluid_aim_fire_queued) .. " prev_state=" .. tostring(fluid_aim_prev_wpn_state))
+            -- Clear unjam grace period for the OLD weapon being switched away from
+            if fluid_aim_current_wpn_id then
+                fluid_aim_unjam_grace_active[fluid_aim_current_wpn_id] = nil
+                fluid_aim_prev_arti_jam_status[fluid_aim_current_wpn_id] = nil
+            end
             fluid_aim_current_wpn_id = wpn_id
             -- Inherit this weapon's known jam state so we don't fire into a previously-jammed weapon
             fluid_aim_jammed = inherited_jam
@@ -196,6 +236,29 @@ local function actor_on_update()
         -- Log state changes frame to frame
         if state ~= fluid_aim_prev_wpn_state then
             debug_log("[FRAME] wpn_id=" .. tostring(wpn_id) .. " state: " .. tostring(fluid_aim_prev_wpn_state) .. " -> " .. tostring(state) .. " jammed=" .. tostring(fluid_aim_jammed) .. " queued=" .. tostring(fluid_aim_fire_queued) .. " fire_btn=" .. tostring(fluid_aim_fire) .. " in_jam_table=" .. tostring(fluid_aim_jammed_weapons[wpn_id] == true))
+        end
+
+        -- Block firing during unjam grace period (force state back to 0 and re-jam weapon)
+        if state == 5 then
+            if fluid_aim_prev_wpn_state ~= 5 then
+                local grace_check = is_in_unjam_grace_period(wpn_id)
+                if grace_check then
+                    debug_log("[GRACE] Blocking fire during unjam grace period: wpn_id=" .. tostring(wpn_id) .. " forcing state back to 0 and re-jamming in engine")
+                    wpn:switch_state(0)
+                    -- Re-jam the weapon with original severity (restore pre-unjam status)
+                    if arti_jamming and arti_jamming.set_jam_status then
+                        local original_status = fluid_aim_prev_arti_jam_status[wpn_id]
+                        -- If we have the original jam status, restore it; otherwise default to 2 (normal jam)
+                        local jam_status = original_status or 2
+                        arti_jamming.set_jam_status(wpn_id, jam_status)
+                        debug_log("[GRACE] Re-jammed weapon in engine: wpn_id=" .. tostring(wpn_id) .. " status=" .. tostring(jam_status) .. " (original was " .. tostring(original_status) .. ")")
+                    else
+                        -- Fallback to local flags if arti_jamming unavailable
+                        fluid_aim_jammed = true
+                        fluid_aim_jammed_weapons[wpn_id] = true
+                    end
+                end
+            end
         end
 
         -- Derive jam state directly from weapon state (eMisfire = 8)
@@ -215,6 +278,7 @@ local function actor_on_update()
             -- Weapon transitioned from fire (5) back to idle (0) - check if ammo was consumed
             -- This detects silent jams that don't manifest as state 8
             local ammo_now = wpn:get_ammo_in_magazine()
+
             if fluid_aim_last_fire_ammo >= 0 then
                 if ammo_now == fluid_aim_last_fire_ammo then
                     -- Ammo unchanged - weapon was jammed during that fire attempt
@@ -300,13 +364,18 @@ local function actor_on_update()
                 if rapid_aim_enabled and fluid_aim_fire and not fluid_aim_reset_fire_on_load then
                     -- Check actual jam status from arti_jamming or fallback to table
                     local wpn_actually_jammed = is_weapon_jammed(wpn_id)
-                    if not wpn_actually_jammed and state == 1 then
+                    local in_unjam_grace = is_in_unjam_grace_period(wpn_id)
+                    if not wpn_actually_jammed and not in_unjam_grace and state == 1 then
                         if not fluid_aim_fire_queued then
-                            debug_log("[FIRE] queue set: eShowing jammed=" .. tostring(wpn_actually_jammed) .. " rapid_enabled=" .. tostring(rapid_aim_enabled))
+                            debug_log("[FIRE] queue set: eShowing jammed=" .. tostring(wpn_actually_jammed) .. " unjam_grace=" .. tostring(in_unjam_grace) .. " rapid_enabled=" .. tostring(rapid_aim_enabled))
                         end
                         fluid_aim_fire_queued = true
-                    elseif state == 1 and wpn_actually_jammed then
-                        debug_log("[FIRE] NOT queueing (state=1 but jammed): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(wpn_actually_jammed))
+                    elseif state == 1 and (wpn_actually_jammed or in_unjam_grace) then
+                        if wpn_actually_jammed then
+                            debug_log("[FIRE] NOT queueing (state=1 but jammed): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(wpn_actually_jammed))
+                        else
+                            debug_log("[FIRE] NOT queueing (state=1 but in unjam grace period): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " in_unjam_grace=" .. tostring(in_unjam_grace))
+                        end
                     end
                 end
                 -- Clear fire queue if weapon is currently jammed (eMisfire = 8)
