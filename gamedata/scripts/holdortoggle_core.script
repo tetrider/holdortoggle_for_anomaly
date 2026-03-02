@@ -65,6 +65,9 @@ function actor_on_first_update()
     -- Then apply MCM settings
     utils.debug_log("[CORE] Calling on_option_change")
     on_option_change()
+    if stance_vignette then
+        stance_vignette.update_stance()
+    end
     utils.debug_log("[CORE] actor_on_first_update completed")
 end
 
