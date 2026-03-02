@@ -191,6 +191,24 @@ function on_key_release(key)
                 if axr_main.weapon_is_zoomed then
                     utils.debug_log("[AIM] key_release: Hold+Toggle mode - pressing zoom to deactivate")
                     level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+
+                    -- If fire button still held, re-press it after zoom deactivates (only for full-auto weapons)
+                    local fire_state = key_state(bind_to_dik(key_bindings.kWPN_FIRE))
+                    if fire_state ~= 0 then
+                        CreateTimeEvent("holdortoggle_aim", "resume_fire_after_zoom", 0.01, function()
+                            if key_state(bind_to_dik(key_bindings.kWPN_FIRE)) ~= 0 then
+                                local wpn = db.actor and db.actor:active_item()
+                                local fire_mode = wpn and IsWeapon(wpn) and wpn:cast_Weapon():GetFireMode() or 0
+                                if fire_mode == -1 then
+                                    utils.debug_log("[AIM] Fire still held after zoom deactivate - re-pressing fire (full-auto)")
+                                    level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
+                                else
+                                    utils.debug_log("[AIM] Fire still held after zoom deactivate - skipping re-press (single/burst mode)")
+                                end
+                            end
+                            return true
+                        end)
+                    end
                 end
                 state.holding_aim = false
                 state.aim_key_down = false
@@ -205,6 +223,23 @@ function on_key_release(key)
                     end)
                 else
                     utils.debug_log("[AIM] key_release: Hold+Toggle tap - clearing aim_key_down (still zoomed)")
+                    -- If fire button still held, re-press it after zoom deactivates (only for full-auto weapons)
+                    local fire_state = key_state(bind_to_dik(key_bindings.kWPN_FIRE))
+                    if fire_state ~= 0 then
+                        CreateTimeEvent("holdortoggle_aim", "resume_fire_after_zoom_tap", 0.01, function()
+                            if key_state(bind_to_dik(key_bindings.kWPN_FIRE)) ~= 0 then
+                                local wpn = db.actor and db.actor:active_item()
+                                local fire_mode = wpn and IsWeapon(wpn) and wpn:cast_Weapon():GetFireMode() or 0
+                                if fire_mode == -1 then
+                                    utils.debug_log("[AIM] Fire still held after zoom deactivate (tap) - re-pressing fire (full-auto)")
+                                    level.press_action(bind_to_dik(key_bindings.kWPN_FIRE))
+                                else
+                                    utils.debug_log("[AIM] Fire still held after zoom deactivate (tap) - skipping re-press (single/burst mode)")
+                                end
+                            end
+                            return true
+                        end)
+                    end
                     state.aim_key_down = false
                 end
             end

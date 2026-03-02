@@ -54,7 +54,7 @@ end
 -- Returns: true if still in grace period, false otherwise
 local function is_in_unjam_grace_period(wpn_id)
     local in_grace = fluid_aim_unjam_grace_active[wpn_id] == true
-    debug_log("[GRACE_CHECK] wpn_id=" .. tostring(wpn_id) .. " in_grace=" .. tostring(in_grace))
+    -- debug_log("[GRACE_CHECK] wpn_id=" .. tostring(wpn_id) .. " in_grace=" .. tostring(in_grace))
     return in_grace
 end
 
@@ -303,6 +303,13 @@ local function actor_on_update()
             end
         end
 
+        -- If weapon was lowered (state 12 eUnSheathe) while fire is held, return to fire state
+        -- This prevents weapon from staying lowered when player aims while firing
+        if state == 12 and fluid_aim_fire and fluid_aim_prev_wpn_state == 5 then
+            debug_log("[FIRE] Weapon lowered during fire with fire button held - returning to fire state: wpn_id=" .. tostring(wpn_id))
+            wpn:switch_state(5)
+        end
+
         -- Derive jam state directly from weapon state (eMisfire = 8)
         if state == 8 then
             if not fluid_aim_jammed then
@@ -442,13 +449,28 @@ local function actor_on_update()
                 elseif rapid_aim_enabled and fluid_aim_fire and fluid_aim_prev_fire_held and not fluid_aim_fire_queued then
                     -- Fire held but not newly pressed, and queue not set - queue if:
                     -- 1) Still aiming (eShowing = state 1), OR
-                    -- 2) Weapon just finished firing/reloading and returned to eIdle (state 0)
+                    -- 2) Entering zoom/aim state (11) from fire state (5), OR
+                    -- 3) Weapon just finished firing/reloading and returned to eIdle (state 0)
                     local wpn_actually_jammed = is_weapon_jammed(wpn_id)
                     if not wpn_actually_jammed and not is_in_unjam_grace_period(wpn_id) then
                         if state == 1 then
                             -- Still aiming, queue fire for when aim completes
                             debug_log("[FIRE] queue set while holding (still aiming): state=" .. tostring(state))
                             fluid_aim_fire_queued = true
+                        elseif state == 11 and fluid_aim_prev_wpn_state == 5 then
+                            -- Entering aim state while coming from fire - queue to fire while aiming
+                            debug_log("[FIRE] queue set while holding (entering zoom from fire): prev_state=" .. tostring(fluid_aim_prev_wpn_state) .. " current_state=" .. tostring(state))
+                            fluid_aim_fire_queued = true
+                        elseif state == 11 and fluid_aim_prev_wpn_state == 0 then
+                            -- Entering aim state from idle - only queue for full-auto weapons
+                            -- Single/burst weapons should not auto-fire again just because fire is held
+                            local fire_mode = wpn:cast_Weapon():GetFireMode()
+                            if fire_mode == -1 then
+                                debug_log("[FIRE] queue set while holding (entering zoom from idle, full-auto): fire_mode=" .. tostring(fire_mode))
+                                fluid_aim_fire_queued = true
+                            else
+                                debug_log("[FIRE] NOT queueing (entering zoom from idle, single/burst): fire_mode=" .. tostring(fire_mode))
+                            end
                         elseif state == 0 and fluid_aim_prev_wpn_state ~= 0 then
                             -- Just returned to eIdle (weapon finished action) - queue next shot
                             -- BUT ONLY FOR FULL-AUTO WEAPONS (fire_mode == -1) OR SINGLE/BURST WITH FIRE STILL HELD
@@ -485,18 +507,29 @@ local function actor_on_update()
                 end
                 -- Clear fire queue if weapon is currently jammed (eMisfire = 8)
                 -- But NOT if we just interrupted a reload (pump-action fire must still go through)
+                -- Also NOT if full-auto weapon and fire button still held (allow retry/resume fire after aim)
                 if (fluid_aim_jammed or state == 8) and not fluid_aim_reload_interrupted then
-                    if fluid_aim_fire_queued then
-                        debug_log("[FIRE] queue cleared: jammed=" .. tostring(fluid_aim_jammed) .. " state=" .. tostring(state))
+                    local fire_mode = wpn:cast_Weapon():GetFireMode()
+                    if fire_mode == -1 and fluid_aim_fire then
+                        -- Full-auto with fire still held - preserve queue to retry firing
+                        -- This allows fire to resume when re-activating after aim deactivate
+                    else
+                        if fluid_aim_fire_queued then
+                            debug_log("[FIRE] queue cleared: jammed=" .. tostring(fluid_aim_jammed) .. " state=" .. tostring(state) .. " fire_mode=" .. tostring(fire_mode))
+                        end
+                        fluid_aim_fire_queued = false
                     end
-                    fluid_aim_fire_queued = false
                 end
 
                 -- Fire exactly once when weapon finishes raising or is forced out of reload (-> eIdle)
+                -- Also fire while in aim state (11) if transitioning from fire state (5) with queued fire
                 -- fluid_aim_reload_interrupted allows firing even through intermediate states (e.g. eBore pump animation)
                 -- Note: Don't check jam status here - let arti_jamming handle it with proper sound feedback
-                local should_fire = fluid_aim_fire_queued and state == 0 and
-                        (fluid_aim_prev_wpn_state == 1 or (fluid_aim_prev_wpn_state == 5 and not fluid_aim_just_fired) or fluid_aim_prev_wpn_state == 7 or fluid_aim_reload_interrupted)
+                -- Allow firing after transitioning from: eShowing(1), eFire(5), eReload(7), eZoom(11), or reload_interrupted
+                local should_fire = fluid_aim_fire_queued and (
+                        (state == 0 and (fluid_aim_prev_wpn_state == 1 or (fluid_aim_prev_wpn_state == 5 and not fluid_aim_just_fired) or fluid_aim_prev_wpn_state == 7 or fluid_aim_prev_wpn_state == 11 or fluid_aim_reload_interrupted)) or
+                        (state == 11 and fluid_aim_prev_wpn_state == 5 and fluid_aim_fire)  -- Fire while aiming if came from fire state and button still held
+                )
 
                 if state == 0 and fluid_aim_fire_queued then
                     debug_log("[FIRE] eIdle check: wpn_id=" .. tostring(wpn_id) .. " queued=" .. tostring(fluid_aim_fire_queued) .. " jammed=" .. tostring(fluid_aim_jammed) .. " in_jam_table=" .. tostring(fluid_aim_jammed_weapons[wpn_id] == true) .. " prev_state=" .. tostring(fluid_aim_prev_wpn_state) .. " interrupted=" .. tostring(fluid_aim_reload_interrupted) .. " should_fire=" .. tostring(should_fire))
