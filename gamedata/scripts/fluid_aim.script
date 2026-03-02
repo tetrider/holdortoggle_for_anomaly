@@ -788,7 +788,7 @@ end
 -- Functions
 -- Prematurely force the weapon to aim or shoot after weapon switch delay
 function switch_weapon_state (wpn, fluid_aim_switch_weapon)
-    if wpn:get_state() == 1 and not (wpn:weapon_is_scope()) and not (SYS_GetParam(0,wpn:section(),"kind") == "w_sniper") then
+    if wpn:get_state() == 1 then
         if fluid_aim_switch_weapon == true then
             wpn:switch_state(0)
             fluid_aim_switch_weapon = false
