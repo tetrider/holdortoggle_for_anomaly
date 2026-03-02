@@ -130,14 +130,11 @@ local function should_aim_be_active()
     end
     
     if hot_aim == 2 then
-        if holdortoggle_state.aim_key_down then
-            if axr_main.weapon_is_zoomed then
-                debug_log("[FLUID_AIM] should_aim_be_active: clearing aim_key_down (zoomed)")
-                holdortoggle_state.aim_key_down = false
-            end
-            return true
-        end
-        return holdortoggle_state.holding_aim
+        -- In hold+toggle mode: aim is active if:
+        -- 1) User has flag set (aim_key_down or holding_aim), OR
+        -- 2) Weapon is already zoomed (stay zoomed even during brief flag transitions)
+        -- This prevents deactivation when pressing while zoomed causes temporary flag clearing
+        return holdortoggle_state.holding_aim or holdortoggle_state.aim_key_down or axr_main.weapon_is_zoomed
     end
     
     return true

@@ -9,6 +9,8 @@ local hot_aim = 0
 local hot_sprint = 0
 -- Tracks whether we disabled wpn_aim_toggle (ui_options.get is unreliable for console vars)
 local aim_toggle_disabled = false
+-- Tracks if aim was just toggled off by pressing while zoomed (prevents re-activation on same button hold)
+local aim_toggled_off_by_press = false
 
 function update_options()
     if ui_mcm then
@@ -101,9 +103,11 @@ function on_key_press(key)
             end)
         elseif hot_aim == 2 then
             if axr_main.weapon_is_zoomed then
-                utils.debug_log("[AIM] key_press: Hold+Toggle mode - already zoomed, clearing flags")
+                utils.debug_log("[AIM] key_press: Hold+Toggle mode - already zoomed, clearing flags and blocking re-activation")
                 state.aim_key_down = false
                 state.holding_aim = false
+                -- Mark that aim was toggled off by this press (prevent hold threshold from re-activating)
+                aim_toggled_off_by_press = true
             else
                 RemoveTimeEvent("holdortoggle_aim_tap", "clear")
                 state.aim_key_down = true
@@ -111,6 +115,7 @@ function on_key_press(key)
                 -- while the key is still held. If key_hold already set holding_aim=true,
                 -- clearing it here causes key_release to take the tap path and skip
                 -- restoring wpn_aim_toggle.
+                aim_toggled_off_by_press = false  -- Clear flag when pressing while not zoomed (normal press)
                 utils.debug_log("[AIM] key_press: Hold+Toggle mode - aim_key_down=true holding_aim=" .. tostring(state.holding_aim))
             end
         end
@@ -121,6 +126,12 @@ function on_key_hold(key)
     local is_modifier = utils.is_modifier_key(key)
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) and ui_mcm.key_hold("holdortoggle", key) then
         if hot_aim == 2 then
+            -- Guard: don't activate hold mode if aim was just toggled off by pressing while zoomed
+            if aim_toggled_off_by_press then
+                utils.debug_log("[AIM] key_hold: threshold fired but aim was toggled off by press - ignoring hold activation")
+                return
+            end
+
             -- Guard: key_hold fires from a timer; if the key was already released, ignore it
             if key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) == 0 then
                 utils.debug_log("[AIM] key_hold: threshold fired but key already released - ignoring")
@@ -166,6 +177,9 @@ end
 function on_key_release(key)
     if (key == bind_to_dik(key_bindings.kWPN_ZOOM)) then
         local aim_was_held = state.holding_aim
+
+        -- Clear the "toggled off by press" flag when button is released
+        aim_toggled_off_by_press = false
 
         if hot_aim == 0 then
             utils.debug_log("[AIM] key_release: Hold mode - holding_aim=" .. tostring(state.holding_aim) .. " is_zoomed=" .. tostring(axr_main.weapon_is_zoomed))
