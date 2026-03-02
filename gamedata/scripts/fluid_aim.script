@@ -669,7 +669,8 @@ local function actor_on_update()
                         end
                     else
                         -- Fallback: If exiting eReload while fire is held, queue fire (handles manual interrupt)
-                        if fluid_aim_prev_wpn_state == 7 and state == 0 and fluid_aim_fire and not fluid_aim_reset_fire_on_load then
+                        -- BUT ONLY if we didn't already handle the interrupt via ammo-increase (prev_reload_ammo >= 0 means we were tracking but no ammo increase yet)
+                        if fluid_aim_prev_wpn_state == 7 and state == 0 and fluid_aim_fire and not fluid_aim_reset_fire_on_load and fluid_aim_prev_reload_ammo >= 0 then
                             debug_log("[FIRE] pump-action fallback: exited eReload with fire held, queue fire")
                             fluid_aim_fire_queued = true
                             fluid_aim_reload_interrupted = true
