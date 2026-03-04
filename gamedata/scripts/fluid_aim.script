@@ -277,7 +277,7 @@ local function actor_on_update()
 
         -- Log state changes frame to frame
         if state ~= fluid_aim_prev_wpn_state then
-            debug_log("[FRAME] wpn_id=" .. tostring(wpn_id) .. " state: " .. tostring(fluid_aim_prev_wpn_state) .. " -> " .. tostring(state) .. " jammed=" .. tostring(fluid_aim_jammed) .. " queued=" .. tostring(fluid_aim_fire_queued) .. " fire_btn=" .. tostring(fluid_aim_fire) .. " in_jam_table=" .. tostring(fluid_aim_jammed_weapons[wpn_id] == true))
+            -- debug_log("[FRAME] wpn_id=" .. tostring(wpn_id) .. " state: " .. tostring(fluid_aim_prev_wpn_state) .. " -> " .. tostring(state) .. " jammed=" .. tostring(fluid_aim_jammed) .. " queued=" .. tostring(fluid_aim_fire_queued) .. " fire_btn=" .. tostring(fluid_aim_fire) .. " in_jam_table=" .. tostring(fluid_aim_jammed_weapons[wpn_id] == true))
         end
 
         -- Block firing during unjam grace period (force state back to 0 and re-jam weapon)
@@ -642,7 +642,7 @@ local function actor_on_update()
                 if rapid_aim_enabled and (fluid_aim_fire or fluid_aim_interrupt_with_aim) and not fluid_aim_reset_fire_on_load and not is_weapon_jammed(wpn_id) then
                     if state == 7 then
                         local cur_ammo = wpn:get_ammo_in_magazine()
-                        debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
+                        -- debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
                         if fluid_aim_prev_reload_ammo < 0 then
                             debug_log("[FIRE] reload tracking start: ammo=" .. tostring(cur_ammo))
                             fluid_aim_prev_reload_ammo = cur_ammo
@@ -684,9 +684,15 @@ local function actor_on_update()
                                 fluid_aim_prev_reload_ammo = -1
                             else
                                 -- Full magazine inserted - let reload animation finish, fire on completion
-                                debug_log("[FIRE] magazine reload: queuing fire on completion")
-                                fluid_aim_prev_reload_ammo = cur_ammo
-                                fluid_aim_fire_queued = true
+                                -- BUT: if aim interrupt is pending, don't queue fire (let magazine reload cancel path handle it)
+                                if not fluid_aim_interrupt_with_aim then
+                                    debug_log("[FIRE] magazine reload: queuing fire on completion")
+                                    fluid_aim_prev_reload_ammo = cur_ammo
+                                    fluid_aim_fire_queued = true
+                                else
+                                    debug_log("[FIRE] magazine reload: skipping fire queue (aim interrupt pending)")
+                                    fluid_aim_prev_reload_ammo = cur_ammo
+                                end
                             end
                         end
                     else
@@ -698,14 +704,14 @@ local function actor_on_update()
                             fluid_aim_reload_interrupted = true
                         end
                         if fluid_aim_prev_reload_ammo >= 0 then
-                            debug_log("[FRAME] left eReload state (was tracking ammo), reset: prev_state=" .. tostring(fluid_aim_prev_wpn_state))
+                            -- debug_log("[FRAME] left eReload state (was tracking ammo), reset: prev_state=" .. tostring(fluid_aim_prev_wpn_state))
                         end
                         fluid_aim_prev_reload_ammo = -1
                         fluid_aim_interrupt_with_aim = false  -- Clear aim interrupt flag if reload exited
                     end
                 else
                     if state == 7 then
-                        debug_log("[FRAME] eReload but not tracking: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
+                        -- debug_log("[FRAME] eReload but not tracking: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
                     end
                     fluid_aim_prev_reload_ammo = -1
                 end
@@ -716,23 +722,54 @@ local function actor_on_update()
                     if state == 7 then
                         local cur_ammo = wpn:get_ammo_in_magazine()
                         local prev_mag_ammo = mag_reload_prev_ammo[wpn_id] or -1
+                        debug_log("[MAG_CANCEL] Frame check: wpn_id=" .. tostring(wpn_id) .. " state=7 cur_ammo=" .. tostring(cur_ammo) .. " prev_tracked=" .. tostring(prev_mag_ammo) .. " interrupt_flag=" .. tostring(fluid_aim_interrupt_with_aim))
 
                         if prev_mag_ammo < 0 then
                             -- Start tracking ammo during reload
                             mag_reload_prev_ammo[wpn_id] = cur_ammo
                             debug_log("[MAG_CANCEL] Reload tracking start: wpn_id=" .. tostring(wpn_id) .. " ammo=" .. tostring(cur_ammo))
+                        elseif cur_ammo < prev_mag_ammo then
+                            -- Ammo dropped below tracked value (magazine being unloaded/replaced during reload animation)
+                            -- Reset tracking to current value so we can detect the new magazine load cycle
+                            debug_log("[MAG_CANCEL] Ammo dropped: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_mag_ammo) .. " cur=" .. tostring(cur_ammo) .. " resetting tracking")
+                            mag_reload_prev_ammo[wpn_id] = cur_ammo
                         elseif cur_ammo > prev_mag_ammo then
                             -- Ammo increased - round/magazine finished loading
                             local delta = cur_ammo - prev_mag_ammo
                             debug_log("[MAG_CANCEL] Ammo increased: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_mag_ammo) .. " cur=" .. tostring(cur_ammo) .. " delta=" .. tostring(delta))
-                            if not mag_reload_cancel_ready[wpn_id] then
+                            -- Check for aim interrupt first (works for any delta - single or multi-shell)
+                            debug_log("[MAG_CANCEL] Check interrupt flag: fluid_aim_interrupt_with_aim=" .. tostring(fluid_aim_interrupt_with_aim) .. " rapid_aim_enabled=" .. tostring(rapid_aim_enabled))
+                            if fluid_aim_interrupt_with_aim then
+                                -- Aim button interrupt: exit reload and transition to aim
+                                debug_log("[MAG_CANCEL] magazine reload interrupt with aim: switch_state(0)")
+                                fluid_aim_interrupt_with_aim = false
+                                wpn:switch_state(0)
+                                -- Flag that interrupt is pending - prevents normal aim from pressing zoom too early
+                                fluid_aim_reload_interrupt_zoom_pending[wpn_id] = true
+                                -- Schedule zoom press after weapon animation settles (50ms delay)
+                                local wpn_id_aim = wpn_id
+                                CreateTimeEvent("mag_reload_aim_cancel", "aim_mag_" .. tostring(wpn_id), 0.05, function()
+                                    if db.actor and db.actor:active_item() and db.actor:active_item():id() == wpn_id_aim then
+                                        -- Only press zoom if not already zoomed
+                                        if not axr_main.weapon_is_zoomed then
+                                            level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+                                            debug_log("[MAG_CANCEL] magazine reload interrupt: zoom pressed after reload exit (50ms settle time)")
+                                        else
+                                            debug_log("[MAG_CANCEL] magazine reload interrupt: skipped (already zoomed)")
+                                        end
+                                    end
+                                    -- Clear the pending flag after zoom press executes
+                                    fluid_aim_reload_interrupt_zoom_pending[wpn_id_aim] = nil
+                                    return true
+                                end)
+                            elseif not mag_reload_cancel_ready[wpn_id] then
                                 debug_log("[MAG_CANCEL] Round loaded, starting cancel window: wpn_id=" .. tostring(wpn_id) .. " delay=" .. tostring(mag_reload_cancel_delay) .. "s")
                                 -- Start timer for mag_reload_cancel_delay
                                 local wpn_id_capture = wpn_id
                                 CreateTimeEvent("mag_reload_cancel", "mag_" .. tostring(wpn_id), mag_reload_cancel_delay, function()
                                     mag_reload_cancel_ready[wpn_id_capture] = true
                                     mag_reload_aim_ready[wpn_id_capture] = true  -- Also allow aim cancel
-                                    debug_log("[MAG_CANCEL] Cancel window expired, weapon can fire or aim: wpn_id=" .. tostring(wpn_id_capture))
+                                    debug_log("[MAG_CANCEL] Cancel window expired: wpn_id=" .. tostring(wpn_id_capture) .. " mag_reload_cancel_ready=true mag_reload_aim_ready=true")
                                     return true
                                 end)
                             end
@@ -749,8 +786,32 @@ local function actor_on_update()
                     mag_reload_cancel_ready[wpn_id] = nil
                 end
 
+                -- If aim interrupt flag is set while ready, exit reload and aim (even if button released)
+                if mag_reload_cancel_enabled and mag_reload_aim_ready[wpn_id] and fluid_aim_interrupt_with_aim and state == 7 and not is_weapon_jammed(wpn_id) then
+                    debug_log("[MAG_CANCEL] Aim interrupt while ready: wpn_id=" .. tostring(wpn_id) .. " exiting reload and aiming")
+                    fluid_aim_interrupt_with_aim = false
+                    wpn:switch_state(0)
+                    -- Flag that interrupt is pending - prevents normal aim from pressing zoom too early
+                    fluid_aim_reload_interrupt_zoom_pending[wpn_id] = true
+                    -- Schedule zoom press after weapon animation settles (50ms delay)
+                    local wpn_id_aim = wpn_id
+                    CreateTimeEvent("mag_reload_aim_cancel", "aim_mag_interrupt_ready_" .. tostring(wpn_id), 0.05, function()
+                        if db.actor and db.actor:active_item() and db.actor:active_item():id() == wpn_id_aim then
+                            -- Only press zoom if not already zoomed
+                            if not axr_main.weapon_is_zoomed then
+                                level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+                                debug_log("[MAG_CANCEL] Aim interrupt: zoom pressed after reload exit (50ms settle time)")
+                            else
+                                debug_log("[MAG_CANCEL] Aim interrupt: skipped (already zoomed)")
+                            end
+                        end
+                        -- Clear the pending flag after zoom press executes
+                        fluid_aim_reload_interrupt_zoom_pending[wpn_id_aim] = nil
+                        return true
+                    end)
+                    mag_reload_aim_ready[wpn_id] = nil
                 -- If aim button is held and weapon is ready, exit and aim
-                if mag_reload_cancel_enabled and mag_reload_aim_ready[wpn_id] and fluid_aim_aim and state == 7 and not is_weapon_jammed(wpn_id) then
+                elseif mag_reload_cancel_enabled and mag_reload_aim_ready[wpn_id] and fluid_aim_aim and state == 7 and not is_weapon_jammed(wpn_id) then
                     debug_log("[MAG_CANCEL] Aim held while ready: wpn_id=" .. tostring(wpn_id) .. " exiting reload and aiming")
                     wpn:switch_state(0)
                     -- Queue aim action via delayed press (same as fire)
@@ -786,6 +847,11 @@ local function actor_on_update()
                             -- Start tracking ammo during reload
                             pump_reload_prev_ammo[wpn_id] = cur_ammo
                             debug_log("[PUMP_CANCEL] Reload tracking start: wpn_id=" .. tostring(wpn_id) .. " ammo=" .. tostring(cur_ammo))
+                        elseif cur_ammo < prev_pump_ammo then
+                            -- Ammo dropped below tracked value (magazine being unloaded/replaced during reload animation)
+                            -- Reset tracking to current value so we can detect the new pump load cycle
+                            debug_log("[PUMP_CANCEL] Ammo dropped: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_pump_ammo) .. " cur=" .. tostring(cur_ammo) .. " resetting tracking")
+                            pump_reload_prev_ammo[wpn_id] = cur_ammo
                         elseif cur_ammo > prev_pump_ammo then
                             -- Ammo increased - shell finished loading
                             local delta = cur_ammo - prev_pump_ammo
