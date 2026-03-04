@@ -46,6 +46,7 @@ function on_stance_change()
 end
 
 function update_stance()
+    if not stance_vignette_enabled then return end
     -- Check actual stance via IsMoveState (only called on state change, not every frame)
     local is_crouching = IsMoveState("mcCrouch")
     local is_walking = IsMoveState("mcAccel")
