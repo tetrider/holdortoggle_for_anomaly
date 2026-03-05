@@ -30,6 +30,7 @@ local fluid_aim_button_released_since_fire = false  -- tracks if button was rele
 local fluid_aim_single_fire_requeue_used = false  -- tracks if single/burst re-queue already used during this button hold (prevents continuous fire)
 local fluid_aim_single_fire_cooldown_active = {}  -- tracks if single-fire cooldown is active per weapon (wpn_id -> true), prevents rapid triple-fire
 local fluid_aim_reload_interrupt_zoom_pending = {}  -- tracks per-weapon if pump-action interrupt with aim just happened (wpn_id -> true), prevents normal aim from pressing zoom too early
+local fluid_aim_weapon_type_cache = {}  -- caches weapon type ("pump_action" or "magazine") per wpn_id for efficient reload detection
 
 local function debug_log(msg)
     if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
@@ -71,6 +72,60 @@ function _G.is_in_unjam_grace_period(wpn_id)
 end
 
 _G.fluid_aim_prev_arti_jam_status = fluid_aim_prev_arti_jam_status
+
+-- Weapon type detection via config properties (more reliable than state/ammo tracking)
+-- Returns: "pump_action" (round-by-round), "magazine" (standard), or nil if can't determine
+local function detect_weapon_reload_type(wpn)
+    if not wpn then return nil end
+
+    local wpn_section = wpn:section()
+    if not wpn_section then return nil end
+
+    local ini_sys = system_ini()
+    if not ini_sys then return nil end
+
+    -- Priority 1: Check for tri_state_reload flag (pump-action round-by-round loading)
+    -- Examples: MP133, SPAS-12, Mosberg 590, Remington 870, etc.
+    if ini_sys:r_string_ex(wpn_section, "tri_state_reload") == "on" then
+        return "pump_action"
+    end
+
+    -- Priority 2: Check for break-action class (also round-by-round but different mechanism)
+    -- Examples: BM16, TOZ-34
+    local wpn_class = ini_sys:r_string_ex(wpn_section, "class")
+    if wpn_class == "WP_BM16" then
+        return "pump_action"  -- Treat break-action same as pump for reload purposes
+    end
+
+    -- Priority 3: Check if it's a shotgun without tri_state_reload (magazine-fed shotgun)
+    -- Examples: Saiga-12
+    local weapon_class = ini_sys:r_string_ex(wpn_section, "weapon_class")
+    if weapon_class == "shotgun" then
+        return "magazine"  -- Magazine-fed shotgun (auto-detect by exclusion)
+    end
+
+    -- Default: Assume magazine-fed (covers rifles, pistols, SMGs, etc.)
+    return "magazine"
+end
+
+-- Helper function to check if a weapon is pump-action (uses cache for efficiency)
+-- Returns: true if pump-action (tri_state_reload or WP_BM16), false if magazine-fed
+local function is_weapon_pump_action(wpn)
+    if not wpn then return false end
+
+    local wpn_id = wpn:id()
+
+    -- Check cache first (avoids repeated INI reads per frame)
+    if fluid_aim_weapon_type_cache[wpn_id] then
+        return fluid_aim_weapon_type_cache[wpn_id] == "pump_action"
+    end
+
+    -- Detect type and cache result
+    local wpn_type = detect_weapon_reload_type(wpn)
+    fluid_aim_weapon_type_cache[wpn_id] = wpn_type
+
+    return wpn_type == "pump_action"
+end
 
 -- Rapid aim settings
 local rapid_aim_enabled = false
@@ -644,13 +699,18 @@ local function actor_on_update()
                         local cur_ammo = wpn:get_ammo_in_magazine()
                         -- debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
                         if fluid_aim_prev_reload_ammo < 0 then
-                            debug_log("[FIRE] reload tracking start: ammo=" .. tostring(cur_ammo))
+                            local is_pump = is_weapon_pump_action(wpn)
+                            debug_log("[FIRE] reload tracking start: ammo=" .. tostring(cur_ammo) .. " weapon_type=" .. (is_pump and "pump_action" or "magazine"))
                             fluid_aim_prev_reload_ammo = cur_ammo
                         elseif cur_ammo > fluid_aim_prev_reload_ammo then
                             local delta = cur_ammo - fluid_aim_prev_reload_ammo
-                            debug_log("[FIRE] ammo increased: prev=" .. tostring(fluid_aim_prev_reload_ammo) .. " cur=" .. tostring(cur_ammo) .. " delta=" .. tostring(delta))
-                            if delta == 1 then
-                                -- Single shell loaded (pump-action)
+                            local is_pump = is_weapon_pump_action(wpn)
+                            debug_log("[FIRE] ammo increased: prev=" .. tostring(fluid_aim_prev_reload_ammo) .. " cur=" .. tostring(cur_ammo) .. " delta=" .. tostring(delta) .. " detected_type=" .. (is_pump and "pump_action" or "magazine"))
+
+                            -- Use ONLY detected weapon type to guide reload handling (config-based, not ammo-delta)
+                            -- Ammo delta varies and is logged for visibility, but routing is config-based only
+                            if is_pump then
+                                -- Pump-action: round-by-round reloading (detected from config)
                                 if fluid_aim_interrupt_with_aim then
                                     -- Aim button interrupt: exit reload and transition to aim
                                     debug_log("[AIM] pump-action interrupt with aim: switch_state(0)")
@@ -683,8 +743,9 @@ local function actor_on_update()
                                 end
                                 fluid_aim_prev_reload_ammo = -1
                             else
-                                -- Full magazine inserted - let reload animation finish, fire on completion
+                                -- Full magazine/multi-shell loaded - let reload animation finish, fire on completion
                                 -- BUT: if aim interrupt is pending, don't queue fire (let magazine reload cancel path handle it)
+                                debug_log("[FIRE] magazine reload: delta=" .. tostring(delta) .. " (detected=" .. (is_pump and "pump_action" or "magazine") .. ")")
                                 if not fluid_aim_interrupt_with_aim then
                                     debug_log("[FIRE] magazine reload: queuing fire on completion")
                                     fluid_aim_prev_reload_ammo = cur_ammo
@@ -726,8 +787,9 @@ local function actor_on_update()
 
                         if prev_mag_ammo < 0 then
                             -- Start tracking ammo during reload
+                            local is_pump = is_weapon_pump_action(wpn)
                             mag_reload_prev_ammo[wpn_id] = cur_ammo
-                            debug_log("[MAG_CANCEL] Reload tracking start: wpn_id=" .. tostring(wpn_id) .. " ammo=" .. tostring(cur_ammo))
+                            debug_log("[MAG_CANCEL] Reload tracking start: wpn_id=" .. tostring(wpn_id) .. " ammo=" .. tostring(cur_ammo) .. " weapon_type=" .. (is_pump and "pump_action" or "magazine"))
                         elseif cur_ammo < prev_mag_ammo then
                             -- Ammo dropped below tracked value (magazine being unloaded/replaced during reload animation)
                             -- Reset tracking to current value so we can detect the new magazine load cycle
