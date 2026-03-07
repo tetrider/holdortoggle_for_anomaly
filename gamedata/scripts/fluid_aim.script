@@ -475,7 +475,7 @@ local function actor_on_update()
                 switch_weapon_state(wpn, fluid_aim_switch_weapon)
 
                 -- Aim weapon logic
-                if fluid_aim_aim and should_aim_be_active() then
+                if rapid_fire_enabled and fluid_aim_aim and should_aim_be_active() then
                     -- Skip zoom if pump-action interrupt with aim just happened - let its delayed zoom press handle it
                     if not fluid_aim_reload_interrupt_zoom_pending[wpn_id] then
                         if not (axr_main.weapon_is_zoomed) and (game.actor_weapon_lowered() or not (state == 2 or state == 3 or state == 5 or state == 7)) then
