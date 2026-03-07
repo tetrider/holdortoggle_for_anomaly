@@ -159,56 +159,13 @@ function on_option_change()
 
     utils.debug_log("[CONFIG] Loaded MCM values - crouch: " .. tostring(hot_crouch) .. ", walk: " .. tostring(hot_walk) .. ", sprint: " .. tostring(hot_sprint) .. ", lean: " .. tostring(hot_lean) .. ", prone: " .. tostring(hot_prone))
 
-    -- Always keep game toggles ON for crouch, walk, and sprint
-    -- We mimic Hold behavior in our scripts by toggling off on release
-    -- Mode: 0=Hold (mimicked), 1=Toggle (native), 2=Hold+Toggle (both)
-
-    -- Crouch - always ensure toggle is ON
-    utils.debug_log("[CONFIG] Processing crouch - mode: " .. tostring(hot_crouch) .. ", current game toggle: " .. tostring(state.is_crouch_toggled))
-    if not state.is_crouch_toggled then
-        utils.debug_log("[CONFIG] Enabling crouch toggle (always ON for all modes)")
-        get_console():execute("g_crouch_toggle on")
-        ui_options.set("control/general/crouch_toggle", true)
-    else
-        utils.debug_log("[CONFIG] Crouch toggle already ON")
-    end
-
-    -- Walk - always ensure toggle is ON
-    utils.debug_log("[CONFIG] Processing walk - mode: " .. tostring(hot_walk) .. ", current game toggle: " .. tostring(state.is_walk_toggled))
-    if not state.is_walk_toggled then
-        utils.debug_log("[CONFIG] Enabling walk toggle (always ON for all modes)")
-        get_console():execute("g_walk_toggle on")
-        ui_options.set("control/general/walk_toggle", true)
-    else
-        utils.debug_log("[CONFIG] Walk toggle already ON")
-    end
-
-    -- Sprint - always ensure toggle is ON
-    utils.debug_log("[CONFIG] Processing sprint - mode: " .. tostring(hot_sprint) .. ", current game toggle: " .. tostring(state.is_sprint_toggled))
-    if not state.is_sprint_toggled then
-        utils.debug_log("[CONFIG] Enabling sprint toggle (always ON for all modes)")
-        get_console():execute("g_sprint_toggle on")
-        ui_options.set("control/general/sprint_toggle", true)
-    else
-        utils.debug_log("[CONFIG] Sprint toggle already ON")
-    end
-
-     -- Lean - always ensure toggle is ON
-    utils.debug_log("[CONFIG] Processing lean - current game toggle: " .. tostring(state.is_leaning_toggled))
-    if not state.is_leaning_toggled then
-        utils.debug_log("[CONFIG] Enabling lean toggle (always ON for all modes)")
-        get_console():execute("g_lookout_toggle on")
-        ui_options.set("control/general/lookout_toggle", true)
-    else
-        utils.debug_log("[CONFIG] Lean toggle already ON")
-    end
-
-    -- Aim - always force toggle ON
-    -- ui_options doesn't reflect the console var state, so check is unreliable.
-    -- Force unconditionally to recover from any stuck-off state (e.g. crash mid-hold).
-    utils.debug_log("[CONFIG] Forcing wpn_aim_toggle on")
+    -- Force all toggles ON unconditionally to recover from any stuck-off state (e.g. crash mid-hold).
+    utils.debug_log("[CONFIG] Forcing all toggles on")
+    get_console():execute("g_crouch_toggle on")
+    get_console():execute("g_walk_toggle on")
+    get_console():execute("g_sprint_toggle on")
+    get_console():execute("g_lookout_toggle on")
     get_console():execute("wpn_aim_toggle on")
-    ui_options.set("control/general/aim_toggle", true)
 
     -- Handle stance system selection
     -- Progressive stance always activates (based on stance_system), others require hot_prone > 0
