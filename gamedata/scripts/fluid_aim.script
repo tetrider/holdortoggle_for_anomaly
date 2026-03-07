@@ -31,6 +31,7 @@ local fluid_aim_single_fire_requeue_used = false  -- tracks if single/burst re-q
 local fluid_aim_single_fire_cooldown_active = {}  -- tracks if single-fire cooldown is active per weapon (wpn_id -> true), prevents rapid triple-fire
 local fluid_aim_reload_interrupt_zoom_pending = {}  -- tracks per-weapon if pump-action interrupt with aim just happened (wpn_id -> true), prevents normal aim from pressing zoom too early
 local fluid_aim_weapon_type_cache = {}  -- caches weapon type ("pump_action" or "magazine") per wpn_id for efficient reload detection
+local fluid_aim_unjam_grace_period = 0  -- default unjam grace period in seconds (adjustable via MCM)
 
 local function debug_log(msg)
     if holdortoggle_utils then holdortoggle_utils.debug_log(msg) end
@@ -152,6 +153,47 @@ local mag_reload_aim_ready = {}  -- tracks which weapons are ready to aim after 
 local pump_reload_aim_ready = {}  -- tracks which weapons are ready to aim after pump reload (wpn_id -> true)
 local fluid_aim_button_released_after_aim = false  -- tracks if aim button released after using aim (for re-aim on next press)
 
+-- Unjam fire settings
+local unjam_fire_ready = {}  -- tracks which weapons are ready to fire after unjam grace period expires (wpn_id -> true)
+
+-- WHY fluid_aim_aim_while_jammed EXISTS:
+--
+-- Problem: player taps aim while weapon is jammed, expects aim to activate after unjam.
+-- This is trivially true for fire (fluid_aim_fire reflects key_state), but aim is deeply broken:
+--
+-- In Hold+Toggle mode (hot_aim_mode=2), the aim key (RMB) is handled by wpn_aim_toggle=on,
+-- meaning the ENGINE consumes the key_press event before it reaches any Lua callback.
+-- Consequence: on_key_press for kWPN_ZOOM never fires. holdortoggle_features_aim.script's
+-- aim.on_key_press() is never called. state.aim_key_down is never set to true on press.
+-- Therefore fluid_aim_aim (derived from state.holding_aim or state.aim_key_down) stays false
+-- throughout the entire aim key press duration. No transition to detect, no flag to read.
+--
+-- on_key_release IS fired (key release events are not consumed), so the tap is confirmed there.
+-- holdortoggle_features_aim.script's on_key_release tap path (line ~247) is the ONLY place
+-- where a H+T tap can be reliably detected. That is where fluid_aim_queue_aim_after_unjam()
+-- must be called.
+--
+-- Additional nuance: the jam itself is often detected ONLY via the local jam table
+-- (fluid_aim_jammed_weapons), not via arti_jamming. The "fire blocked" detection stores the
+-- weapon in the local table via ammo-comparison, but arti_jamming.get_jammed() may still
+-- return nil at the time of the tap (it catches up asynchronously). So the jam check in
+-- fluid_aim_queue_aim_after_unjam must check BOTH arti_jamming AND the local table.
+--
+-- The flag is consumed in the unjam_fire_ready trigger (elseif fluid_aim_aim or
+-- fluid_aim_aim_while_jammed[wpn_id]) and cleared on weapon switch.
+local fluid_aim_aim_while_jammed = {}  -- tracks if aim was tapped while weapon was jammed (queued aim for post-unjam)
+
+-- Called by holdortoggle_features_aim.script's on_key_release tap path.
+-- MUST be defined after fluid_aim_aim_while_jammed, fluid_aim_jammed_weapons, and
+-- is_weapon_jammed to capture them as upvalues (Lua locals must be declared before use).
+-- Checks both arti_jamming and local table because arti_jamming may lag behind ammo-based detection.
+function _G.fluid_aim_queue_aim_after_unjam(wpn_id)
+    if wpn_id and (fluid_aim_jammed_weapons[wpn_id] or is_weapon_jammed(wpn_id)) then
+        fluid_aim_aim_while_jammed[wpn_id] = true
+        debug_log("[JAM] fluid_aim_queue_aim_after_unjam: queued aim for post-unjam wpn_id=" .. tostring(wpn_id))
+    end
+end
+
 -- Update settings from MCM
 function fluid_aim_update_settings()
     if ui_mcm then
@@ -159,6 +201,7 @@ function fluid_aim_update_settings()
         rapid_fire_enabled = ui_mcm.get("holdortoggle/rapid_fire/rapid_fire")
         rapid_aim_pistol_delay = ui_mcm.get("holdortoggle/rapid_fire/rapid_aim_pistol_delay")
         rapid_aim_other_delay = ui_mcm.get("holdortoggle/rapid_fire/rapid_aim_other_delay")
+        fluid_aim_unjam_grace_period = ui_mcm.get("holdortoggle/rapid_fire/unjam_grace_period") or 0
         mag_reload_cancel_enabled = ui_mcm.get("holdortoggle/rapid_fire/mag_reload_cancel")
         mag_reload_cancel_delay = ui_mcm.get("holdortoggle/rapid_fire/mag_reload_cancel_delay")
         pump_reload_cancel_enabled = ui_mcm.get("holdortoggle/rapid_fire/pump_reload_cancel")
@@ -273,6 +316,18 @@ local function actor_on_update()
 
     if fluid_aim_aim ~= prev_fluid_aim_aim then
         debug_log("[FLUID_AIM] aim flag: " .. tostring(prev_fluid_aim_aim) .. " -> " .. tostring(fluid_aim_aim))
+        -- Aim just became active - if weapon is jammed, queue aim for post-unjam
+        -- (covers RMB/aim presses that don't go through on_key_press)
+        if fluid_aim_aim and not prev_fluid_aim_aim then
+            local wpn_chk = db.actor and db.actor:active_item()
+            if wpn_chk then
+                local wpn_id_chk = wpn_chk:id()
+                if (is_weapon_jammed(wpn_id_chk) or fluid_aim_jammed_weapons[wpn_id_chk]) and not fluid_aim_aim_while_jammed[wpn_id_chk] then
+                    fluid_aim_aim_while_jammed[wpn_id_chk] = true
+                    debug_log("[JAM] Aim pressed while jammed (aim flag transition): queued aim for post-unjam wpn_id=" .. tostring(wpn_id_chk))
+                end
+            end
+        end
         prev_fluid_aim_aim = fluid_aim_aim
     end
 
@@ -292,14 +347,20 @@ local function actor_on_update()
             -- Detect transition from jammed (prev truthy) to unjammed (current falsy: 0, nil, false)
             -- This catches both "return 0" and "weapon removed from table (nil)" cases
             if prev_arti_jam and not current_arti_jam then
-                -- Unjam event detected! Start grace period via TimeEvent (1.5 seconds)
+                -- Unjam event detected! Start grace period via TimeEvent
                 fluid_aim_unjam_grace_active[wpn_id] = true
                 local wpn_id_capture = wpn_id  -- Capture in closure
-                debug_log("[UNJAM] unjam event detected from arti_jamming: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_arti_jam) .. " curr=" .. tostring(current_arti_jam) .. " starting grace period")
+                debug_log("[UNJAM] unjam event detected from arti_jamming: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_arti_jam) .. " curr=" .. tostring(current_arti_jam) .. " starting grace period (" .. tostring(fluid_aim_unjam_grace_period) .. "s)")
 
-                CreateTimeEvent("fluid_aim_grace", "grace_" .. tostring(wpn_id), 1.5, function()
+                CreateTimeEvent("fluid_aim_grace", "grace_" .. tostring(wpn_id), fluid_aim_unjam_grace_period, function()
                     fluid_aim_unjam_grace_active[wpn_id_capture] = nil
-                    debug_log("[UNJAM] Grace period expired: wpn_id=" .. tostring(wpn_id_capture))
+                    -- Set ready flag so the update loop can fire/aim on next press or if already held
+                    if rapid_fire_enabled then
+                        unjam_fire_ready[wpn_id_capture] = true
+                        debug_log("[UNJAM] Grace period expired: wpn_id=" .. tostring(wpn_id_capture) .. " unjam_fire_ready=true (fire=" .. tostring(fluid_aim_fire) .. " aim=" .. tostring(fluid_aim_aim) .. ")")
+                    else
+                        debug_log("[UNJAM] Grace period expired: wpn_id=" .. tostring(wpn_id_capture) .. " (rapid_fire disabled)")
+                    end
                     return true
                 end)
             end
@@ -325,6 +386,8 @@ local function actor_on_update()
                 fluid_aim_unjam_grace_active[fluid_aim_current_wpn_id] = nil
                 fluid_aim_prev_arti_jam_status[fluid_aim_current_wpn_id] = nil
                 fluid_aim_single_fire_cooldown_active[fluid_aim_current_wpn_id] = nil  -- Clear single-fire cooldown
+                unjam_fire_ready[fluid_aim_current_wpn_id] = nil  -- Clear unjam fire ready flag
+                fluid_aim_aim_while_jammed[fluid_aim_current_wpn_id] = nil  -- Clear queued aim-while-jammed flag
                 mag_reload_cancel_ready[fluid_aim_current_wpn_id] = nil
                 mag_reload_prev_ammo[fluid_aim_current_wpn_id] = nil
                 pump_reload_cancel_ready[fluid_aim_current_wpn_id] = nil
@@ -382,6 +445,13 @@ local function actor_on_update()
             end
             fluid_aim_jammed = true
             fluid_aim_jammed_weapons[wpn_id] = true  -- Store when jam detected
+            if not fluid_aim_aim_while_jammed[wpn_id] then
+                local aim_held = fluid_aim_aim or (key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0)
+                if aim_held then
+                    fluid_aim_aim_while_jammed[wpn_id] = true
+                    debug_log("[JAM] Aim held at jam detection (state8): queued aim for post-unjam wpn_id=" .. tostring(wpn_id))
+                end
+            end
         elseif state == 5 and fluid_aim_prev_wpn_state ~= 5 then
             -- Entering fire state - capture ammo for silent jam detection
             if fluid_aim_last_fire_ammo < 0 then  -- Only capture once per fire
@@ -399,6 +469,13 @@ local function actor_on_update()
                     debug_log("[FIRE] Silent jam detected: wpn_id=" .. tostring(wpn_id) .. " ammo_before=" .. tostring(fluid_aim_last_fire_ammo) .. " ammo_after=" .. tostring(ammo_now) .. " - STORED IN TABLE")
                     fluid_aim_jammed = true
                     fluid_aim_jammed_weapons[wpn_id] = true
+                    if not fluid_aim_aim_while_jammed[wpn_id] then
+                        local aim_held = fluid_aim_aim or (key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0)
+                        if aim_held then
+                            fluid_aim_aim_while_jammed[wpn_id] = true
+                            debug_log("[JAM] Aim held at jam detection (silent): queued aim for post-unjam wpn_id=" .. tostring(wpn_id))
+                        end
+                    end
                 elseif ammo_now < fluid_aim_last_fire_ammo then
                     -- Ammo was consumed - weapon fired successfully, clear from jam table
                     if fluid_aim_jammed_weapons[wpn_id] then
@@ -429,6 +506,13 @@ local function actor_on_update()
                     fluid_aim_jammed = true
                     fluid_aim_jammed_weapons[wpn_id] = true
                     fluid_aim_fire_blocked_frames = 0  -- Reset after detecting
+                    if not fluid_aim_aim_while_jammed[wpn_id] then
+                        local aim_held = fluid_aim_aim or (key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0)
+                        if aim_held then
+                            fluid_aim_aim_while_jammed[wpn_id] = true
+                            debug_log("[JAM] Aim held at jam detection (blocked): queued aim for post-unjam wpn_id=" .. tostring(wpn_id))
+                        end
+                    end
                 end
             else
                 debug_log("[FIRE] Fire held in idle (single/burst mode fire_mode=" .. tostring(fire_mode) .. ") - not counting as jam")
@@ -787,6 +871,55 @@ local function actor_on_update()
                     fluid_aim_prev_reload_ammo = -1
                 end
 
+                -- Unjam recovery animation cancel (fire or aim immediately after unjam grace period)
+                -- If fire/aim is held and grace period has expired, act without waiting for recovery animation
+                if rapid_fire_enabled and unjam_fire_ready[wpn_id] then
+                    debug_log("[UNJAM_FIRE] check: wpn_id=" .. tostring(wpn_id) .. " state=" .. tostring(state) .. " jammed=" .. tostring(is_weapon_jammed(wpn_id)) .. " fire=" .. tostring(fluid_aim_fire) .. " aim=" .. tostring(fluid_aim_aim) .. " aim_queued=" .. tostring(fluid_aim_aim_while_jammed[wpn_id] ~= nil) .. " aim_key_held=" .. tostring(key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0))
+                end
+                if rapid_fire_enabled and unjam_fire_ready[wpn_id] and state ~= 8 and not is_weapon_jammed(wpn_id) then
+                    -- key_state covers Hold mode: RMB held throughout jam+unjam, but on_key_press is engine-consumed
+                    -- so holding_aim is never set and fluid_aim_aim stays false. key_state polls hardware directly.
+                    local aim_key_held = key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0
+                    if fluid_aim_fire then
+                        debug_log("[UNJAM_FIRE] Fire held after unjam ready: wpn_id=" .. tostring(wpn_id) .. " queuing fire immediately")
+                        -- Clear jam table: "Fire blocked" detection may have re-set it this frame
+                        -- since the weapon stays in state 0 during unjam recovery (arti_jamming already cleared it)
+                        fluid_aim_jammed_weapons[wpn_id] = nil
+                        fluid_aim_jammed = false
+                        fluid_aim_fire_blocked_frames = 0
+                        -- Use reload_interrupted flag so should_fire triggers from state 0 without needing a state transition
+                        fluid_aim_reload_interrupted = true
+                        fluid_aim_fire_queued = true
+                        unjam_fire_ready[wpn_id] = nil
+                    -- fluid_aim_aim covers: hold-to-zoom mode, or aim physically held at unjam time
+                    -- fluid_aim_aim_while_jammed covers: H+T tap/Toggle tap mode where aim key press is engine-consumed
+                    --   (wpn_aim_toggle=on causes the engine to eat the RMB key_press before any Lua on_key_press fires,
+                    --    so holding_aim/aim_key_down are never set, fluid_aim_aim stays false — tap is only confirmed
+                    --    on on_key_release, which calls fluid_aim_queue_aim_after_unjam to set this flag)
+                    -- key_state(zoom_dik) covers: Hold mode where RMB is physically held throughout jam+unjam
+                    --   (same engine-consumed on_key_press issue, but on_key_release only fires when button is released —
+                    --    if player never releases RMB, the tap path never runs; key_state polls physical hardware directly
+                    --    and works regardless of whether on_key_press fired or was consumed by the engine)
+                    elseif fluid_aim_aim or fluid_aim_aim_while_jammed[wpn_id] or aim_key_held then
+                        debug_log("[UNJAM_FIRE] Aim held after unjam ready: wpn_id=" .. tostring(wpn_id) .. " activating aim immediately (aim=" .. tostring(fluid_aim_aim) .. " queued=" .. tostring(fluid_aim_aim_while_jammed[wpn_id] ~= nil) .. " key_held=" .. tostring(aim_key_held) .. ")")
+                        fluid_aim_jammed_weapons[wpn_id] = nil
+                        fluid_aim_jammed = false
+                        fluid_aim_fire_blocked_frames = 0
+                        fluid_aim_aim_while_jammed[wpn_id] = nil
+                        local wpn_id_aim = wpn_id
+                        CreateTimeEvent("fluid_aim_unjam_aim", "unjam_aim_" .. tostring(wpn_id), 0.001, function()
+                            if db.actor and db.actor:active_item() and db.actor:active_item():id() == wpn_id_aim then
+                                if not axr_main.weapon_is_zoomed then
+                                    level.press_action(bind_to_dik(key_bindings.kWPN_ZOOM))
+                                    debug_log("[UNJAM_FIRE] Aim after unjam: zoom pressed")
+                                end
+                            end
+                            return true
+                        end)
+                        unjam_fire_ready[wpn_id] = nil
+                    end
+                end
+
                 -- Magazine reload animation cancel (with adjustable delay)
                 -- Start timer window after round/magazine finishes loading (ammo increases)
                 if mag_reload_cancel_enabled and not is_weapon_jammed(wpn_id) then
@@ -1009,8 +1142,16 @@ local function actor_on_weapon_jammed()
     fluid_aim_jammed = true
     local wpn = db.actor and db.actor:active_item()
     if wpn then
-        debug_log("[JAM] actor_on_weapon_jammed callback FIRED: wpn_id=" .. tostring(wpn:id()))
-        fluid_aim_jammed_weapons[wpn:id()] = true
+        local wpn_id = wpn:id()
+        debug_log("[JAM] actor_on_weapon_jammed callback FIRED: wpn_id=" .. tostring(wpn_id))
+        fluid_aim_jammed_weapons[wpn_id] = true
+        -- If aim is currently held when weapon jams, queue aim for post-unjam
+        -- (covers the case where aim was pressed before the jam, so on_key_press can't detect it)
+        local aim_held = fluid_aim_aim or (key_state(bind_to_dik(key_bindings.kWPN_ZOOM)) ~= 0)
+        if aim_held then
+            fluid_aim_aim_while_jammed[wpn_id] = true
+            debug_log("[JAM] Aim held at jam time: queued aim for post-unjam wpn_id=" .. tostring(wpn_id))
+        end
     else
         debug_log("[JAM] actor_on_weapon_jammed callback FIRED: no active weapon")
     end
@@ -1049,6 +1190,16 @@ local function on_key_press(key)
         if ui_options.get("control/general/aim_toggle") and axr_main.weapon_is_zoomed and not is_holdortoggle_managing_aim() then
             debug_log("[KEY] ZOOM pressed (already zoomed)")
             fluid_aim_toggle = true
+        end
+        -- Queue aim for post-unjam if weapon is currently jammed (tap may clear before unjam completes)
+        -- Check both arti_jamming and local table: arti_jamming may lag behind ammo-based jam detection
+        local wpn = db.actor and db.actor:active_item()
+        if wpn then
+            local wpn_id = wpn:id()
+            if is_weapon_jammed(wpn_id) or fluid_aim_jammed_weapons[wpn_id] then
+                fluid_aim_aim_while_jammed[wpn_id] = true
+                debug_log("[KEY] ZOOM pressed while jammed: queued aim for post-unjam wpn_id=" .. tostring(wpn_id))
+            end
         end
     end
 end

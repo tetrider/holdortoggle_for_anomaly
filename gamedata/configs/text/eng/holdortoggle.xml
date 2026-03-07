@@ -318,6 +318,17 @@
 		<text>Time (in seconds) after drawing a rifle, shotgun, or other weapon before the queued fire or ADS is triggered. Lower values skip more of the raise animation; increase if shots fire before the animation don't look right.</text>
 	</string>
 
+	<!-- unjam_grace_period -->
+	<string id="ui_mcm_mcm_holdortoggle_rapid_fire_unjam_grace_period">
+		<text>Unjam Grace Period</text>
+	</string>
+	<string id="unjam_grace_period_hint">
+		<text>Unjam Grace Period</text>
+	</string>
+	<string id="unjam_grace_period_hint_desc">
+		<text>Time (in seconds) after manually unjamming a weapon during which fire and aim are blocked. Prevents firing during the unjam animation. Increase if you accidentally shoot before the animation completes.</text>
+	</string>
+
 	<!-- mag_reload_cancel -->
 	<string id="ui_mcm_mag_reload_cancel_hint">
 		<text>Magazine Reload Cancel</text>

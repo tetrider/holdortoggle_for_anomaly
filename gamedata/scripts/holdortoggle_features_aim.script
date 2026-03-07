@@ -250,6 +250,17 @@ function on_key_release(key)
                         state.aim_key_down = false
                         return true
                     end)
+                    -- Notify fluid_aim if weapon is jammed so aim activates after unjam.
+                    -- This is the ONLY reliable place to detect an aim tap in H+T mode:
+                    -- wpn_aim_toggle=on causes the engine to consume the RMB key_press event
+                    -- before it reaches any Lua on_key_press callback. So aim.on_key_press()
+                    -- never fires, state.aim_key_down is never set to true, and fluid_aim_aim
+                    -- stays false throughout the entire physical press. on_key_release is NOT
+                    -- consumed by the engine, so this tap path here is the only confirmation point.
+                    local wpn_tap = db.actor and db.actor:active_item()
+                    if wpn_tap and IsWeapon(wpn_tap) and _G.fluid_aim_queue_aim_after_unjam then
+                        _G.fluid_aim_queue_aim_after_unjam(wpn_tap:id())
+                    end
                 else
                     utils.debug_log("[AIM] key_release: Hold+Toggle tap - clearing aim_key_down (still zoomed)")
                     -- If fire button still held, re-press it after zoom deactivates (only for full-auto weapons)
@@ -283,6 +294,11 @@ function on_key_release(key)
                     state.aim_key_down = false
                     return true
                 end)
+                -- Same as H+T mode: aim key press is engine-consumed, tap only confirmed here on release
+                local wpn_tap = db.actor and db.actor:active_item()
+                if wpn_tap and IsWeapon(wpn_tap) and _G.fluid_aim_queue_aim_after_unjam then
+                    _G.fluid_aim_queue_aim_after_unjam(wpn_tap:id())
+                end
             else
                 utils.debug_log("[AIM] key_release: Hold+Toggle tap - clearing aim_key_down (still zoomed)")
                 -- If fire button still held, re-press it after zoom deactivates (only for full-auto weapons)
