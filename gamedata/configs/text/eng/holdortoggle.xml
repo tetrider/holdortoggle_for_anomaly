@@ -15,6 +15,9 @@
 	<string id="ui_mcm_holdortoggle_autowalk">
 		<text>Autowalk</text>
 	</string>
+	<string id="ui_mcm_holdortoggle_rapid_fire">
+		<text>Rapid Fire</text>
+	</string>
 	<string id="ui_mcm_holdortoggle_vignette">
 		<text>Stance Vignette</text>
 	</string>

@@ -127,8 +127,8 @@ local function is_weapon_pump_action(wpn)
     return wpn_type == "pump_action"
 end
 
--- Rapid aim settings
-local rapid_aim_enabled = false
+-- Rapid fire settings
+local rapid_fire_enabled = false
 local rapid_aim_pistol_delay = 0.1
 local rapid_aim_other_delay = 0.3
 
@@ -152,13 +152,13 @@ local fluid_aim_button_released_after_aim = false  -- tracks if aim button relea
 -- Update settings from MCM
 function fluid_aim_update_settings()
     if ui_mcm then
-        rapid_aim_enabled = ui_mcm.get("mcm/holdortoggle/qol/rapid_aim")
-        rapid_aim_pistol_delay = ui_mcm.get("mcm/holdortoggle/qol/rapid_aim_pistol_delay")
-        rapid_aim_other_delay = ui_mcm.get("mcm/holdortoggle/qol/rapid_aim_other_delay")
-        mag_reload_cancel_enabled = ui_mcm.get("mcm/holdortoggle/qol/mag_reload_cancel")
-        mag_reload_cancel_delay = ui_mcm.get("mcm/holdortoggle/qol/mag_reload_cancel_delay")
-        pump_reload_cancel_enabled = ui_mcm.get("mcm/holdortoggle/qol/pump_reload_cancel")
-        pump_reload_cancel_delay = ui_mcm.get("mcm/holdortoggle/qol/pump_reload_cancel_delay")
+        rapid_fire_enabled = ui_mcm.get("mcm/holdortoggle/rapid_fire/rapid_fire")
+        rapid_aim_pistol_delay = ui_mcm.get("mcm/holdortoggle/rapid_fire/rapid_aim_pistol_delay")
+        rapid_aim_other_delay = ui_mcm.get("mcm/holdortoggle/rapid_fire/rapid_aim_other_delay")
+        mag_reload_cancel_enabled = ui_mcm.get("mcm/holdortoggle/rapid_fire/mag_reload_cancel")
+        mag_reload_cancel_delay = ui_mcm.get("mcm/holdortoggle/rapid_fire/mag_reload_cancel_delay")
+        pump_reload_cancel_enabled = ui_mcm.get("mcm/holdortoggle/rapid_fire/pump_reload_cancel")
+        pump_reload_cancel_delay = ui_mcm.get("mcm/holdortoggle/rapid_fire/pump_reload_cancel_delay")
     end
 end
 
@@ -217,7 +217,7 @@ end
 
 -- Get weapon switch delay based on rapid aim settings
 local function get_weapon_switch_delay(wpn_kind)
-    if not rapid_aim_enabled then
+    if not rapid_fire_enabled then
         -- Original behavior: only pistols get delay
         if wpn_kind == "w_pistol" then
             return 0.3
@@ -478,12 +478,12 @@ local function actor_on_update()
                 -- Queue shot only on fire button PRESS (transition from not-held to held) during weapon-raise animation (eShowing = 1)
                 -- This ensures single/burst weapons fire once per press, even if held continuously
                 local fire_button_press = fluid_aim_fire and not fluid_aim_prev_fire_held  -- transition from false to true
-                if rapid_aim_enabled and fire_button_press and not fluid_aim_reset_fire_on_load then
+                if rapid_fire_enabled and fire_button_press and not fluid_aim_reset_fire_on_load then
                     -- Check actual jam status from arti_jamming or fallback to table
                     local wpn_actually_jammed = is_weapon_jammed(wpn_id)
                     local in_unjam_grace = is_in_unjam_grace_period(wpn_id)
                     if not wpn_actually_jammed and not in_unjam_grace and state == 1 then
-                        debug_log("[FIRE] queue set on button press: eShowing jammed=" .. tostring(wpn_actually_jammed) .. " unjam_grace=" .. tostring(in_unjam_grace) .. " rapid_enabled=" .. tostring(rapid_aim_enabled))
+                        debug_log("[FIRE] queue set on button press: eShowing jammed=" .. tostring(wpn_actually_jammed) .. " unjam_grace=" .. tostring(in_unjam_grace) .. " rapid_enabled=" .. tostring(rapid_fire_enabled))
                         fluid_aim_fire_queued = true
                     elseif not wpn_actually_jammed and not in_unjam_grace and state == 0 and fluid_aim_button_released_after_fire then
                         -- Button pressed in idle state, and was released after previous fire (tap+release+hold pattern)
@@ -499,12 +499,12 @@ local function actor_on_update()
                         fluid_aim_button_released_after_fire = false  -- Consume the flag
                     elseif state == 1 and (wpn_actually_jammed or in_unjam_grace) then
                         if wpn_actually_jammed then
-                            debug_log("[FIRE] NOT queueing on press (state=1 but jammed): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(wpn_actually_jammed))
+                            debug_log("[FIRE] NOT queueing on press (state=1 but jammed): rapid=" .. tostring(rapid_fire_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(wpn_actually_jammed))
                         else
-                            debug_log("[FIRE] NOT queueing on press (state=1 but in unjam grace period): rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " in_unjam_grace=" .. tostring(in_unjam_grace))
+                            debug_log("[FIRE] NOT queueing on press (state=1 but in unjam grace period): rapid=" .. tostring(rapid_fire_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " in_unjam_grace=" .. tostring(in_unjam_grace))
                         end
                     end
-                elseif rapid_aim_enabled and fluid_aim_fire and fluid_aim_prev_fire_held and not fluid_aim_fire_queued then
+                elseif rapid_fire_enabled and fluid_aim_fire and fluid_aim_prev_fire_held and not fluid_aim_fire_queued then
                     -- Fire held but not newly pressed, and queue not set - queue if:
                     -- 1) Still aiming (eShowing = state 1), OR
                     -- 2) Entering zoom/aim state (11) from fire state (5), OR
@@ -694,10 +694,10 @@ local function actor_on_update()
                 -- Interrupt reload after first shell loads if fire/aim is held (eReload = 7)
                 -- level.press_action misses animation-end checkpoints, so we monitor ammo count instead:
                 -- when ammo increases (shell just loaded), force weapon to eIdle then fire/aim
-                if rapid_aim_enabled and (fluid_aim_fire or fluid_aim_interrupt_with_aim) and not fluid_aim_reset_fire_on_load and not is_weapon_jammed(wpn_id) then
+                if rapid_fire_enabled and (fluid_aim_fire or fluid_aim_interrupt_with_aim) and not fluid_aim_reset_fire_on_load and not is_weapon_jammed(wpn_id) then
                     if state == 7 then
                         local cur_ammo = wpn:get_ammo_in_magazine()
-                        -- debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
+                        -- debug_log("[FRAME] eReload state: rapid=" .. tostring(rapid_fire_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed) .. " cur_ammo=" .. tostring(cur_ammo) .. " prev_ammo=" .. tostring(fluid_aim_prev_reload_ammo))
                         if fluid_aim_prev_reload_ammo < 0 then
                             local is_pump = is_weapon_pump_action(wpn)
                             debug_log("[FIRE] reload tracking start: ammo=" .. tostring(cur_ammo) .. " weapon_type=" .. (is_pump and "pump_action" or "magazine"))
@@ -772,7 +772,7 @@ local function actor_on_update()
                     end
                 else
                     if state == 7 then
-                        -- debug_log("[FRAME] eReload but not tracking: rapid=" .. tostring(rapid_aim_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
+                        -- debug_log("[FRAME] eReload but not tracking: rapid=" .. tostring(rapid_fire_enabled) .. " fire=" .. tostring(fluid_aim_fire) .. " reset=" .. tostring(fluid_aim_reset_fire_on_load) .. " jammed=" .. tostring(fluid_aim_jammed))
                     end
                     fluid_aim_prev_reload_ammo = -1
                 end
@@ -800,7 +800,7 @@ local function actor_on_update()
                             local delta = cur_ammo - prev_mag_ammo
                             debug_log("[MAG_CANCEL] Ammo increased: wpn_id=" .. tostring(wpn_id) .. " prev=" .. tostring(prev_mag_ammo) .. " cur=" .. tostring(cur_ammo) .. " delta=" .. tostring(delta))
                             -- Check for aim interrupt first (works for any delta - single or multi-shell)
-                            debug_log("[MAG_CANCEL] Check interrupt flag: fluid_aim_interrupt_with_aim=" .. tostring(fluid_aim_interrupt_with_aim) .. " rapid_aim_enabled=" .. tostring(rapid_aim_enabled))
+                            debug_log("[MAG_CANCEL] Check interrupt flag: fluid_aim_interrupt_with_aim=" .. tostring(fluid_aim_interrupt_with_aim) .. " rapid_fire_enabled=" .. tostring(rapid_fire_enabled))
                             if fluid_aim_interrupt_with_aim then
                                 -- Aim button interrupt: exit reload and transition to aim
                                 debug_log("[MAG_CANCEL] magazine reload interrupt with aim: switch_state(0)")
