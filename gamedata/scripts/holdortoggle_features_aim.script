@@ -7,6 +7,7 @@ local stance_utils = holdortoggle_stance_utils
 
 local hot_aim = 0
 local hot_sprint = 0
+local aim_tap_window = 0.5
 -- Tracks whether we disabled wpn_aim_toggle (ui_options.get is unreliable for console vars)
 local aim_toggle_disabled = false
 -- Tracks if aim was just toggled off by pressing while zoomed (prevents re-activation on same button hold)
@@ -16,6 +17,7 @@ function update_options()
     if ui_mcm then
         hot_aim = ui_mcm.get("holdortoggle/main/hot_aim")
         hot_sprint = ui_mcm.get("holdortoggle/main/hot_sprint")
+        aim_tap_window = ui_mcm.get("holdortoggle/rapid_fire/aim_tap_window")
     end
     -- config.on_option_change forces wpn_aim_toggle on, so sync our tracking var
     aim_toggle_disabled = false
@@ -242,9 +244,9 @@ function on_key_release(key)
             else
                 state.holding_aim = false
                 if not axr_main.weapon_is_zoomed then
-                    utils.debug_log("[AIM] key_release: Hold+Toggle tap - keeping aim_key_down for 0.5s")
-                    CreateTimeEvent("holdortoggle_aim_tap", "clear", 0.5, function()
-                        utils.debug_log("[AIM] aim_key_down 0.5s timer fired - clearing")
+                    utils.debug_log("[AIM] key_release: Hold+Toggle tap - keeping aim_key_down for " .. tostring(aim_tap_window) .. "s")
+                    CreateTimeEvent("holdortoggle_aim_tap", "clear", aim_tap_window, function()
+                        utils.debug_log("[AIM] aim_key_down tap timer fired - clearing")
                         state.aim_key_down = false
                         return true
                     end)
@@ -275,9 +277,9 @@ function on_key_release(key)
             -- wpn_aim_toggle stays ON so rapid fire can queue aim presses
             state.holding_aim = false
             if not axr_main.weapon_is_zoomed then
-                utils.debug_log("[AIM] key_release: Hold+Toggle tap - keeping aim_key_down for 0.5s")
-                CreateTimeEvent("holdortoggle_aim_tap", "clear", 0.5, function()
-                    utils.debug_log("[AIM] aim_key_down 0.5s timer fired - clearing")
+                utils.debug_log("[AIM] key_release: Toggle tap - keeping aim_key_down for " .. tostring(aim_tap_window) .. "s")
+                CreateTimeEvent("holdortoggle_aim_tap", "clear", aim_tap_window, function()
+                    utils.debug_log("[AIM] aim_key_down tap timer fired - clearing")
                     state.aim_key_down = false
                     return true
                 end)

@@ -84,6 +84,7 @@ function on_mcm_load()
             -- Rapid Fire Tab
             {id = "rapid_fire", sh = true, text = "ui_mcm_holdortoggle_rapid_fire", gr = {
                 {id = "rapid_fire", type = "check", val = 1, def = false, hint = "rapid_fire_hint"},
+                {id = "aim_tap_window", type = "track", val = 2, def = 0.5, min = 0.1, max = 2.0, step = 0.05, hint = "aim_tap_window_hint"},
                 {id = "rapid_aim_pistol_delay", type = "track", val = 2, def = 0.1, min = 0.0, max = 3, step = 0.05, hint = "rapid_aim_pistol_delay_hint"},
                 {id = "rapid_aim_other_delay", type = "track", val = 2, def = 0.3, min = 0.0, max = 3, step = 0.05, hint = "rapid_aim_other_delay_hint"},
                 {id = "mag_reload_cancel", type = "check", val = 1, def = false, hint = "mag_reload_cancel_hint"},

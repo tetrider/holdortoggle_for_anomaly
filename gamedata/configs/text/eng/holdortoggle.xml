@@ -294,6 +294,14 @@
 		<text>Skips the weapon raise animation when drawing from empty hands or switching weapons. Hold fire before the weapon is ready and it will shoot as soon as the delay expires. Works the same for ADS - hold the aim button, or simply tap aim in Toggle or Hold+Toggle mode. Also enables canceling pump-action reload by holding fire or activating ADS mid-reload.</text>
 	</string>
 
+	<!-- aim_tap_window -->
+	<string id="ui_mcm_aim_tap_window_hint">
+		<text>Aim Tap Window</text>
+	</string>
+	<string id="ui_mcm_aim_tap_window_hint_desc">
+		<text>How long (in seconds) after tapping the aim key the game waits for the weapon to be ready before canceling the queued ADS. Only applies in Toggle and Hold+Toggle aim modes. Applies to any weapon switch — from another weapon, item, or empty hands.</text>
+	</string>
+
 	<!-- rapid_aim_pistol_delay -->
 	<string id="ui_mcm_rapid_aim_pistol_delay_hint">
 		<text>Pistol Ready Delay</text>
